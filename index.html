@@ -542,6 +542,17 @@ function updateRays(frame){
     }
   }
 }
+// zapas: każde trafienie celownika w ścianę (sprawdzone na telefonach) też zapisuje ścianę w swoim kierunku
+function recordReticleWall(){
+  if(!rays.length||!reticleM||!reticlePos) return;
+  const n=col(reticleM,1); if(Math.abs(n[1])>0.5) return;
+  const o=rays[0].o, v=[reticlePos[0]-o[0],0,reticlePos[2]-o[2]], d=hlen(v);
+  if(d<0.4) return;
+  let yaw=Math.atan2(v[0],v[2]); if(yaw<0) yaw+=Math.PI*2;
+  const r=rays[Math.round(yaw/(Math.PI*2)*RAY_N)%RAY_N];
+  r.dist = isFinite(r.dist) ? Math.min(r.dist, r.dist*0.7+d*0.3) : d;
+  r.hit=[o[0]+r.dir[0]*r.dist, o[1], o[2]+r.dir[2]*r.dist];
+}
 function wallCoverage(){
   if(!rays.length) return 0;
   return rays.filter(r=>isFinite(r.dist)).length/rays.length;
@@ -754,7 +765,7 @@ function onFrame(t,frame){
     });
   }
   if(step===0||step===2) detectObjects(frame);
-  if(rays.length) updateRays(frame);
+  if(rays.length){ updateRays(frame); recordReticleWall(); }
 
   tris=[]; quads=[];
   const t1=t/1000;
