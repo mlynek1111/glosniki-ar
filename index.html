@@ -210,6 +210,7 @@ const xform=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12], m[1]*p[0]+m[5]*p[1]+m[9
 function m4mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
 function m4basis(x,y,z,p,sx,sy){return new Float32Array([x[0]*sx,x[1]*sx,x[2]*sx,0, y[0]*sy,y[1]*sy,y[2]*sy,0, z[0],z[1],z[2],0, p[0],p[1],p[2],1]);}
 const UP=[0,1,0];
+let hasDom=false;   // true = telefon (nakładka DOM), false = gogle
 const IN=0.0254, K169=16/Math.hypot(16,9);
 const widthToDiag=w=>w/K169/IN;
 
@@ -277,6 +278,59 @@ function wallAt(O,dir,planes){
 }
 /* ---------- Obrys pokoju wskazany przez użytkownika (pewny na telefonie) ---------- */
 let room=[], roomClosed=false;
+/* ---------- Scalanie kawałków podłogi z ARCore w jedną powierzchnię ---------- */
+function pip(poly,x,z){
+  let c=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const a=poly[i], b=poly[j];
+    if(((a[2]>z)!==(b[2]>z)) && (x<(b[0]-a[0])*(z-a[2])/(b[2]-a[2])+a[0])) c=!c;
+  }
+  return c;
+}
+let floorGrid=null, floorAt=0;
+const FC=0.1;   // siatka 10 cm
+function updateFloorGrid(){
+  if(!hasDom||performance.now()-floorAt<600) return;
+  floorAt=performance.now();
+  const fy=floorY();
+  const polys=planes.filter(p=>!p.vertical && col(p.m,1)[1]>0.8 && Math.abs(col(p.m,3)[1]-fy)<0.08).map(p=>p.world);
+  if(!polys.length){ floorGrid=null; return; }
+  let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity;
+  for(const P of polys) for(const q of P){ x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); z0=Math.min(z0,q[2]); z1=Math.max(z1,q[2]); }
+  const nx=Math.min(250,Math.ceil((x1-x0)/FC)+1), nz=Math.min(250,Math.ceil((z1-z0)/FC)+1), g=new Uint8Array(nx*nz);
+  for(const P of polys){
+    let a0=Infinity,a1=-Infinity,b0=Infinity,b1=-Infinity;
+    for(const q of P){ a0=Math.min(a0,q[0]); a1=Math.max(a1,q[0]); b0=Math.min(b0,q[2]); b1=Math.max(b1,q[2]); }
+    for(let i=Math.max(0,Math.floor((a0-x0)/FC));i<=Math.min(nx-1,Math.ceil((a1-x0)/FC));i++)
+      for(let k=Math.max(0,Math.floor((b0-z0)/FC));k<=Math.min(nz-1,Math.ceil((b1-z0)/FC));k++)
+        if(!g[i*nz+k] && pip(P,x0+(i+0.5)*FC,z0+(k+0.5)*FC)) g[i*nz+k]=1;
+  }
+  // domknij szczeliny 1-komórkowe między kawałkami
+  const g2=g.slice();
+  for(let i=1;i<nx-1;i++) for(let k=1;k<nz-1;k++) if(!g[i*nz+k]){
+    const n=g[(i-1)*nz+k]+g[(i+1)*nz+k]+g[i*nz+k-1]+g[i*nz+k+1];
+    if(n>=3) g2[i*nz+k]=1;
+  }
+  const cells=[], edges=[]; let cnt=0;
+  const at=(i,k)=>i>=0&&k>=0&&i<nx&&k<nz&&g2[i*nz+k];
+  for(let i=0;i<nx;i++) for(let k=0;k<nz;k++){
+    if(!g2[i*nz+k]) continue; cnt++;
+    const x=x0+i*FC, z=z0+k*FC;
+    cells.push([x+FC/2,z+FC/2]);
+    if(!at(i-1,k)) edges.push([[x,z],[x,z+FC]]);
+    if(!at(i+1,k)) edges.push([[x+FC,z],[x+FC,z+FC]]);
+    if(!at(i,k-1)) edges.push([[x,z],[x+FC,z]]);
+    if(!at(i,k+1)) edges.push([[x,z+FC],[x+FC,z+FC]]);
+  }
+  floorGrid={cells,edges,area:cnt*FC*FC,fy,pieces:polys.length};
+}
+function drawFloorGrid(alpha){
+  if(!floorGrid) return;
+  const y=floorGrid.fy+0.003, c=[0.45,0.8,1,0.10*alpha], e=[0.45,0.8,1,0.7*alpha];
+  for(const [x,z] of floorGrid.cells) floorSeg([x-FC/2,y,z],[x+FC/2,y,z],FC,c);
+  for(const [a,b] of floorGrid.edges) floorSeg([a[0],y,a[1]],[b[0],y,b[1]],0.015,e);
+}
+
 /* ======================= TRYBY DŹWIĘKOWE ======================= */
 const MODES=[['normal','✨ Tryb: zwykły'],['waves','🌊 Tryb: fale'],['bass','🔴 Tryb: mapa basu'],['listen','🎧 Tryb: odsłuch 3D'],['crawl','🎤 Tryb: sub crawl']];
 let mode='normal';
@@ -795,7 +849,7 @@ function label(lines,p,accent,alpha=1){
 }
 
 /* ---------- Stan AR ---------- */
-let session=null, refSpace, viewerSpace, viewerHit=null, hasDom=false, floorRef=false;
+let session=null, refSpace, viewerSpace, viewerHit=null, floorRef=false;
 const ctrlHit=new Map();
 // kroki: 0 lewa krawędź TV, 1 prawa krawędź TV, 2 miejsce siedzenia, 3 prowadzenie
 let step=0, tvL=null, tvR=null, tvPt=null, tvWidth=0, tvFromAuto=false, seatPt=null;
@@ -1249,6 +1303,7 @@ function infoText(){
       if(reticlePos) lines.push(`Odległość od TV: ${hlen(sub(reticlePos,tvPt)).toFixed(2)} m`);
     }
     if(planesSupported&&!hasDom) lines.push(`Ściany ze skanu pokoju: ${planes.filter(p=>p.vertical).length}`);
+    if(hasDom&&floorGrid) lines.push(`Podłoga: jedna powierzchnia, ${floorGrid.area.toFixed(1)} m² (scalono ${floorGrid.pieces} kawałków)`);
     if(!hasDom) lines.push(step===0&&autoTV&&!manualTV || step===2&&autoSeat&&!manualSeat ? 'Grip = wskaż ręcznie' : 'Grip = cofnij');
     return lines.join('\n');
   }
@@ -1395,7 +1450,9 @@ function onFrame(t,frame){
   tris=[]; quads=[];
   const t1=t/1000;
   drawObjects(step===3&&!scanning?0.45:1);
-  // Telefon dzieli podłogę na wiele kawałków – nie rysujemy ich. Quest: tylko ściany ze skanu.
+  // Telefon dzieli podłogę na wiele kawałków – scalamy je w jedną powierzchnię. Quest: tylko ściany ze skanu.
+  updateFloorGrid();
+  if(hasDom && (step<3||scanning)) drawFloorGrid(step<3?1:0.6);
   if(!hasDom) for(const p of planes){
     if(!p.vertical) continue;
     for(let i=0;i<p.world.length;i++) seg(p.world[i],p.world[(i+1)%p.world.length],0.012,[1,1,1,0.25]);
