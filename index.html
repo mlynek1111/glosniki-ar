@@ -65,6 +65,8 @@
     <label>Wysokość sufitu (cm) <input id="ceilCm" type="number" inputmode="numeric" value="250" min="200" max="500"></label>
     <p class="hint">Uszy zmierzysz telefonem w AR (przycisk 📏), a sufit zmierzy się sam, gdy wycelujesz w niego celownikiem.</p>
     <label>🔊 Podpowiedzi głosowe <input id="voice" type="checkbox" style="width:auto;transform:scale(1.4)"></label>
+    <label>🥽 Quest: używaj skanu pokoju (meble, ściany) <input id="scanUse" type="checkbox" style="width:auto;transform:scale(1.4)"></label>
+    <p class="hint">Domyślnie wyłączone – wszystko wskazujesz sam. Włącz, jeśli masz dokładnie oznaczony pokój w konfiguracji przestrzeni Questa.</p>
   </div>
 
   <button id="start" disabled>Start AR</button>
@@ -106,8 +108,9 @@
 
   <div class="card">
     <details>
-      <summary>Wersja 1.7 – co nowego</summary>
+      <summary>Wersja 1.8 – co nowego</summary>
       <ol>
+        <li><b>Quest:</b> bez automatycznego wykrywania na starcie (opcja w ustawieniach). Meble ze skanu rysowane w ich prawdziwym obrocie i miejscu.</li>
         <li><b>Czujnik głębi ARCore:</b> celownik działa także na gładkich ścianach; kawałki podłogi scalane w jedną powierzchnię.</li>
         <li><b>Tryby dźwiękowe:</b> fale i odbicia od ścian, mapa basu z najlepszym miejscem na subwoofer, odsłuch 3D wirtualnych głośników w słuchawkach, sub crawl z mikrofonem.</li>
         <li><b>Obrys pokoju:</b> na telefonie wskazujesz narożniki pokoju – ściany są dokładne, głośniki nigdy za ścianą.</li>
@@ -277,7 +280,7 @@ function computeLayout(seat, tv, S, planes, ovr){
 function wallAt(O,dir,planes){
   const pd=polyDist(O,dir);
   // na telefonie płaszczyzny ARCore są zawodne – ściany tylko z obrysu
-  return Math.min(hasDom?Infinity:wallDist(O,dir,planes), pd, room.length>=2?Infinity:rayWall(dir));
+  return Math.min((hasDom||!useScan())?Infinity:wallDist(O,dir,planes), pd, room.length>=2?Infinity:rayWall(dir));
 }
 /* ---------- Obrys pokoju wskazany przez użytkownika (pewny na telefonie) ---------- */
 let room=[], roomClosed=false;
@@ -296,7 +299,7 @@ function updateFloorGrid(){
   if(!hasDom||performance.now()-floorAt<600) return;
   floorAt=performance.now();
   const fy=floorY();
-  const polys=planes.filter(p=>!p.vertical && col(p.m,1)[1]>0.8 && Math.abs(col(p.m,3)[1]-fy)<0.08).map(p=>p.world);
+  const polys=planes.filter(p=>p.horizontal && Math.abs(p.c[1]-fy)<0.08).map(p=>p.world);
   if(!polys.length){ floorGrid=null; return; }
   let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity;
   for(const P of polys) for(const q of P){ x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); z0=Math.min(z0,q[2]); z1=Math.max(z1,q[2]); }
@@ -354,6 +357,7 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
 function wallEdges(){
   if(room.length>=2) return roomEdges();
   const e=[];
+  if(hasDom||!useScan()) return e;
   for(const p of planes){
     if(!p.vertical||p.world.length<2) continue;
     let best=0, A=null, B=null;
@@ -674,19 +678,37 @@ function rayWall(dir){
   const f=yaw/(Math.PI*2)*RAY_N, i0=Math.floor(f)%RAY_N, i1=(i0+1)%RAY_N;
   return Math.min(rays[i0].dist, rays[i1].dist);
 }
+// Płaszczyzna liczona z jej rzeczywistych punktów w świecie: normalna (metoda Newella), środek, lokalne osie
+function makePlane(world,label){
+  if(world.length<3) return null;
+  let n=[0,0,0];
+  for(let i=0;i<world.length;i++){ const a=world[i], b=world[(i+1)%world.length];
+    n[0]+=(a[1]-b[1])*(a[2]+b[2]); n[1]+=(a[2]-b[2])*(a[0]+b[0]); n[2]+=(a[0]-b[0])*(a[1]+b[1]); }
+  if(len(n)<1e-6) return null; n=norm(n);
+  const c=avgPts(world);
+  let u=null;
+  for(let i=0;i<world.length&&!u;i++){ const e=sub(world[(i+1)%world.length],world[i]), ep=sub(e,scl(n,dot(e,n))); if(len(ep)>0.01) u=norm(ep); }
+  if(!u) return null;
+  const v=cross(n,u), poly2=world.map(q=>{ const d=sub(q,c); return [dot(d,u),0,dot(d,v)]; });
+  const ny=Math.abs(n[1]);
+  return {world,c,n,u,v,poly2,vertical:ny<0.35,horizontal:ny>0.85,label};
+}
+// przecięcie promienia z płaszczyzną (tylko wewnątrz jej obrysu, z marginesem m)
+function planeHit(p,o,d,m=0){
+  const den=dot(d,p.n); if(Math.abs(den)<1e-3) return Infinity;
+  const t=dot(sub(p.c,o),p.n)/den; if(t<=0) return Infinity;
+  const h=sub(add(o,scl(d,t)),p.c), x=dot(h,p.u), z=dot(h,p.v);
+  if(pip(p.poly2,x,z)) return t;
+  if(m>0){ for(const [dx,dz] of [[m,0],[-m,0],[0,m],[0,-m]]) if(pip(p.poly2,x+dx,z+dz)) return t; }
+  return Infinity;
+}
 function wallDist(O,dir,planes){
   let best=Infinity;
   if(!planes) return best;
   for(const p of planes){
     if(!p.vertical) continue;
-    const n=col(p.m,1), p0=col(p.m,3), den=dot(dir,n);
-    if(Math.abs(den)<1e-3) continue;
-    const t=dot(sub(p0,O),n)/den;
-    if(t<=0.05||t>=best) continue;
-    const L=xform(p.inv,add(O,scl(dir,t)));
-    const b=p.bbox, m=0.1;
-    if(L[0]<b[0]-m||L[0]>b[1]+m||L[2]<b[2]-m||L[2]>b[3]+m) continue;
-    best=t;
+    const t=planeHit(p,O,dir,0.1);
+    if(t>0.05&&t<best) best=t;
   }
   return best;
 }
@@ -726,8 +748,10 @@ function drawPlan(){
 }
 /* ---------- Zapis ustawień ---------- */
 const LS=(k,v)=>{ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k,JSON.stringify(v)); }catch(e){ return null; } };
-function saveSettings(){ LS('gar-settings',{cfg:$('cfg').value,tvIn:$('tvIn').value,earCm:$('earCm').value,ceilCm:$('ceilCm').value,dist2d:$('dist2d').value,voice:!!$('voice').checked}); }
-(function loadSettings(){ const v=LS('gar-settings'); if(!v) return; for(const k of ['cfg','tvIn','earCm','ceilCm','dist2d']) if(v[k]!=null) $(k).value=v[k]; $('voice').checked=!!v.voice; })();
+function saveSettings(){ LS('gar-settings',{cfg:$('cfg').value,tvIn:$('tvIn').value,earCm:$('earCm').value,ceilCm:$('ceilCm').value,dist2d:$('dist2d').value,voice:!!$('voice').checked,scanUse:!!$('scanUse').checked}); }
+(function loadSettings(){ const v=LS('gar-settings'); if(!v) return; for(const k of ['cfg','tvIn','earCm','ceilCm','dist2d']) if(v[k]!=null) $(k).value=v[k]; $('voice').checked=!!v.voice; $('scanUse').checked=!!v.scanUse; })();
+$('scanUse').addEventListener('change',saveSettings);
+const useScan=()=>!!$('scanUse').checked;
 ['cfg','tvIn','earCm','ceilCm','dist2d'].forEach(id=>$(id).addEventListener('input',()=>{ drawPlan(); saveSettings(); }));
 $('voice').addEventListener('change',()=>{ saveSettings(); if($('voice').checked) speak('Podpowiedzi głosowe włączone'); });
 drawPlan();
@@ -890,7 +914,7 @@ function avgPts(a){ let s=[0,0,0]; for(const p of a) s=add(s,p); return scl(s,1/
 function floorY(){
   if(seatPt) return seatPt[1];
   if(floorRef) return 0;
-  let y=Infinity; for(const p of planes) if(!p.vertical){ const py=col(p.m,3)[1]; if(py<y) y=py; }
+  let y=Infinity; for(const p of planes) if(p.horizontal){ const py=p.c[1]; if(py<y) y=py; }
   return isFinite(y)?y:cam[1]-1.4;
 }
 
@@ -989,7 +1013,7 @@ function place(){
 }
 function startGuide(){ step=3; guide=-1; scanning=true; doneSet.clear(); makeRays();
   okFx(questWalls()?'Ściany ze skanu pokoju wykryte.':'Teraz wskaż narożniki pokoju, po kolei dookoła.'); }
-function questWalls(){ return !hasDom && planes.filter(p=>p.vertical).length>=3; }
+function questWalls(){ return !hasDom && useScan() && planes.filter(p=>p.vertical).length>=3; }
 function nSpk(){ return (CONFIGS[S.cfg]||B51).length; }
 function nextSpk(){
   if(scanning){ if(room.length>=3&&!roomClosed) closeRoom(); else finishScan(); return; }
@@ -1043,10 +1067,11 @@ function checkCeiling(){
 }
 function ceilingFromPlanes(){
   const fy=seatPt?seatPt[1]:floorY();
+  if(!hasDom&&!useScan()) return;
   for(const p of planes){
-    if(p.vertical) continue;
-    const n=col(p.m,1), y=col(p.m,3)[1]-fy;
-    if((/ceiling/i.test(p.label)||n[1]<-0.5) && y>1.9 && y<5){ if(!ceilDone){ S.ceil=y; $('ceilCm').value=cm(y); ceilDone=true; saveSettings(); } return; }
+    if(!p.horizontal) continue;
+    const y=p.c[1]-fy;
+    if((/ceiling/i.test(p.label)||!p.label) && y>1.9 && y<5){ if(!ceilDone){ S.ceil=y; $('ceilCm').value=cm(y); ceilDone=true; saveSettings(); } return; }
   }
 }
 /* ---------- Ostatni pomiar: zapis i udostępnianie ---------- */
@@ -1148,6 +1173,7 @@ function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSea
 const RX_TV=/screen|tv|television|monitor|ekran/i, RX_SEAT=/couch|sofa|seat|kanapa/i;
 function detectObjects(frame){
   autoTV=null; autoSeat=null;
+  if(hasDom||!useScan()) return;
   const cands=[];
   for(const p of planes){ if(p.label) cands.push({label:p.label, pts:p.world}); }
   if(frame.detectedMeshes){
@@ -1183,19 +1209,28 @@ const OBJ_COL={Kanapa:[1,0.75,0.3],Łóżko:[1,0.75,0.3],Drzwi:[1,0.4,0.4],Okno:
 function objName(lbl){ const l=lbl.toLowerCase(); for(const [k,v] of OBJ_NAMES) if(l.includes(k)) return v; return 'Przeszkoda'; }
 let objects=[];
 const meshBox=new WeakMap();
+function hull2(pts){ // otoczka wypukła w rzucie na podłogę (x,z)
+  const P=pts.map(p=>[p[0],0,p[2]]).sort((a,b)=>a[0]-b[0]||a[2]-b[2]);
+  const cr=(o,a,b)=>(a[0]-o[0])*(b[2]-o[2])-(a[2]-o[2])*(b[0]-o[0]);
+  const lo=[],up=[];
+  for(const p of P){ while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0) lo.pop(); lo.push(p); }
+  for(const p of P.slice().reverse()){ while(up.length>=2&&cr(up[up.length-2],up[up.length-1],p)<=0) up.pop(); up.push(p); }
+  return lo.slice(0,-1).concat(up.slice(0,-1));
+}
 function collectObjects(frame){
   objects=[];
+  if(hasDom||!useScan()) return;
   const fy=floorY();
-  const addBox=(lbl,pts,horizontal)=>{
-    if(!pts.length||RX_SKIP.test(lbl.trim())) return;
-    let mn=[Infinity,Infinity,Infinity], mx=[-Infinity,-Infinity,-Infinity];
-    for(const q of pts) for(let k=0;k<3;k++){ mn[k]=Math.min(mn[k],q[k]); mx[k]=Math.max(mx[k],q[k]); }
-    const name=objName(lbl);
-    if(horizontal && name!=='Okno') mn[1]=Math.min(mn[1],fy);   // blat stołu → bryła od podłogi
-    if(mx[0]-mn[0]<0.02&&mx[2]-mn[2]<0.02) return;
-    objects.push({name,mn,mx,col:OBJ_COL[name]||[1,0.6,0.25],blocking:BLOCKING.has(name)});
-  };
-  for(const p of planes) if(p.label) addBox(p.label,p.world,!p.vertical);
+  const push=(lbl,o)=>{ const name=objName(lbl); objects.push({...o,name,col:OBJ_COL[name]||[1,0.6,0.25],blocking:BLOCKING.has(name)}); };
+  for(const p of planes){
+    if(!p.label||RX_SKIP.test(p.label.trim())) continue;
+    if(p.horizontal){   // blat stołu / siedzisko kanapy → bryła do podłogi, w jej prawdziwym obrocie
+      const top=p.world, bot=top.map(q=>[q[0],fy,q[2]]);
+      push(p.label,{type:'prism',top,bot,foot:hull2(top),top_c:p.c});
+    } else {            // okno, drzwi, obraz, ekran – płaski prostokąt na ścianie
+      push(p.label,{type:'flat',poly:p.world,c:p.c});
+    }
+  }
   if(frame.detectedMeshes){
     frame.detectedMeshes.forEach(mesh=>{
       const lbl=mesh.semanticLabel||''; if(RX_SKIP.test(lbl.trim())) return;
@@ -1207,28 +1242,41 @@ function collectObjects(frame){
         c={t:mesh.lastChangedTime,mn,mx}; meshBox.set(mesh,c);
       }
       if(!isFinite(c.mn[0])) return;
-      const m=mp.transform.matrix, corners=[];
+      const m=mp.transform.matrix, corners=[];   // 8 narożników w lokalnym układzie bryły → obrócona bryła
       for(const x of [c.mn[0],c.mx[0]]) for(const y of [c.mn[1],c.mx[1]]) for(const z of [c.mn[2],c.mx[2]]) corners.push(xform(m,[x,y,z]));
-      addBox(lbl,corners,false);
+      push(lbl,{type:'box',corners,foot:hull2(corners),c:avgPts(corners)});
     });
   }
 }
+function loop(pts,w,c){ for(let i=0;i<pts.length;i++) seg(pts[i],pts[(i+1)%pts.length],w,c); }
 function drawObjects(alpha){
   for(const o of objects){
-    const a=o.mn, b=o.mx, c=[...o.col,0.85*alpha];
-    const P=(x,y,z)=>[x?b[0]:a[0], y?b[1]:a[1], z?b[2]:a[2]];
-    const E=[[0,0,0,1,0,0],[0,0,1,1,0,1],[0,1,0,1,1,0],[0,1,1,1,1,1],[0,0,0,0,1,0],[1,0,0,1,1,0],
-             [0,0,1,0,1,1],[1,0,1,1,1,1],[0,0,0,0,0,1],[1,0,0,1,0,1],[0,1,0,0,1,1],[1,1,0,1,1,1]];
-    for(const e of E) seg(P(e[0],e[1],e[2]),P(e[3],e[4],e[5]),0.012,c);
-    // półprzezroczysty „cień” na podłodze
-    const fy=a[1]+0.006;
-    floorSeg([a[0],fy,(a[2]+b[2])/2],[b[0],fy,(a[2]+b[2])/2],b[2]-a[2],[...o.col,0.12*alpha]);
-    label([o.name],[(a[0]+b[0])/2,b[1],(a[2]+b[2])/2],o.col,alpha);
+    const c=[...o.col,0.85*alpha];
+    if(o.type==='flat'){ loop(o.poly,0.012,c); label([o.name],o.c,o.col,alpha); }
+    else if(o.type==='prism'){
+      loop(o.top,0.012,c); loop(o.bot,0.012,[c[0],c[1],c[2],c[3]*0.6]);
+      o.top.forEach((q,i)=>seg(q,o.bot[i],0.01,[c[0],c[1],c[2],c[3]*0.6]));
+      label([o.name],o.top_c,o.col,alpha);
+    } else {
+      const K=o.corners;   // indeks = x*4 + y*2 + z
+      for(let i=0;i<8;i++) for(const bit of [1,2,4]) if(!(i&bit)) seg(K[i],K[i|bit],0.012,c);
+      const top=K.reduce((a,q)=>q[1]>a[1]?q:a,K[0]);
+      label([o.name],[o.c[0],top[1],o.c[2]],o.col,alpha);
+    }
   }
+}
+function segDist2(p,a,b){
+  const ab=[b[0]-a[0],0,b[2]-a[2]], ap=[p[0]-a[0],0,p[2]-a[2]], L2=dot(ab,ab)||1;
+  const t=Math.max(0,Math.min(1,dot(ap,ab)/L2)); return hlen(sub(ap,scl(ab,t)));
 }
 function obstacleAt(p){
   for(const o of objects){
-    if(p[0]>o.mn[0]-0.05&&p[0]<o.mx[0]+0.05&&p[2]>o.mn[2]-0.05&&p[2]<o.mx[2]+0.05) return o;
+    if(o.foot && o.foot.length>=3 && pip(o.foot,p[0],p[2])) return o;
+    if(o.type==='flat' && o.name==='Drzwi'){   // przed drzwiami (w świetle przejścia)
+      let a=o.poly[0], b=o.poly[0], best=0;
+      for(const x of o.poly) for(const y of o.poly){ const d=hlen(sub(x,y)); if(d>best){best=d;a=x;b=y;} }
+      if(segDist2(p,a,b)<0.4) return o;
+    }
   }
   return null;
 }
@@ -1457,13 +1505,10 @@ function rayReticle(o,d){
   let best=Infinity, pt=null, n=null;
   const fy=floorRef?0:floorY();
   if(d[1]<-0.03){ const t=(fy-o[1])/d[1]; if(t>0&&t<12){ best=t; pt=add(o,scl(d,t)); n=[0,1,0]; } }
-  for(const p of planes){
+  if(useScan()) for(const p of planes){
     if(!p.vertical) continue;
-    const pn=col(p.m,1), den=dot(d,pn); if(Math.abs(den)<1e-3) continue;
-    const t=dot(sub(col(p.m,3),o),pn)/den; if(t<=0||t>=best) continue;
-    const L=xform(p.inv,add(o,scl(d,t))), b=p.bbox;
-    if(L[0]<b[0]||L[0]>b[1]||L[2]<b[2]||L[2]>b[3]) continue;
-    best=t; pt=add(o,scl(d,t)); n=dot(pn,d)>0?scl(pn,-1):pn;
+    const t=planeHit(p,o,d); if(t>=best) continue;
+    best=t; pt=add(o,scl(d,t)); n=dot(p.n,d)>0?scl(p.n,-1):p.n;
   }
   if(!pt) return null;
   let x=cross(n,[0,0,1]); if(len(x)<0.2) x=cross(n,[1,0,0]); x=norm(x); const z=cross(x,n);
@@ -1506,18 +1551,17 @@ function onFrame(t,frame){
   checkCeiling();
 
   planes=[];
-  if(frame.detectedPlanes){
+  // gogle: skan pokoju tylko gdy użytkownik go włączył; telefon: płaszczyzny tylko do scalania podłogi
+  if(frame.detectedPlanes && (hasDom||useScan())){
     planesSupported=true;
     frame.detectedPlanes.forEach(pl=>{
       const pp=frame.getPose(pl.planeSpace,refSpace); if(!pp) return;
       const m=pp.transform.matrix;
-      let b=[Infinity,-Infinity,Infinity,-Infinity];
-      for(const q of pl.polygon){ b[0]=Math.min(b[0],q.x); b[1]=Math.max(b[1],q.x); b[2]=Math.min(b[2],q.z); b[3]=Math.max(b[3],q.z); }
       const world=Array.from(pl.polygon,q=>xform(m,[q.x,q.y,q.z]));
-      planes.push({m,inv:pp.transform.inverse.matrix,world,bbox:b,vertical:pl.orientation==='vertical',label:pl.semanticLabel||''});
+      const P=makePlane(world,pl.semanticLabel||''); if(P) planes.push(P);
     });
   }
-  if(step===0||step===2) detectObjects(frame);
+  if((step===0||step===2) && !hasDom && useScan()) detectObjects(frame);
   collectObjects(frame);
   ceilingFromPlanes();
   if(rays.length){ updateRays(frame); }
