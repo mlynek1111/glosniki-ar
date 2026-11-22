@@ -91,6 +91,12 @@
   </div>
 
   <div class="card">
+    <h2>Funkcje dźwiękowe</h2>
+    <p class="hint">W AR przycisk „✨ Tryb” przełącza: 🌊 fale dźwięku i odbicia, 🔴 mapę basu, 🎧 odsłuch 3D (słuchawki!) i 🎤 sub crawl. Sub crawl używa mikrofonu – zezwól na niego tutaj, zanim wejdziesz w AR.</p>
+    <div class="row"><button id="micBtn">🎤 Zezwól na mikrofon</button></div>
+  </div>
+
+  <div class="card">
     <h2>Plan z góry (podgląd bez AR)</h2>
     <label>Odległość kanapa – TV (m) <input id="dist2d" type="number" inputmode="decimal" value="2.5" step="0.1" min="1" max="8"></label>
     <canvas id="plan" width="800" height="800"></canvas>
@@ -99,8 +105,9 @@
 
   <div class="card">
     <details>
-      <summary>Wersja 1.5 – co nowego</summary>
+      <summary>Wersja 1.6 – co nowego</summary>
       <ol>
+        <li><b>Tryby dźwiękowe:</b> fale i odbicia od ścian, mapa basu z najlepszym miejscem na subwoofer, odsłuch 3D wirtualnych głośników w słuchawkach, sub crawl z mikrofonem.</li>
         <li><b>Obrys pokoju:</b> na telefonie wskazujesz narożniki pokoju – ściany są dokładne, głośniki nigdy za ścianą.</li>
         <li>Wizualizacja mebli ze skanu Questa i obrys ścian/przeszkód na telefonie.</li>
         <li>Ostrzeżenie, gdy głośnik wypada na kanapie, łóżku albo w drzwiach.</li>
@@ -138,6 +145,9 @@
     <button id="ear">📏 Uszy</button>
     <button id="share">📤 Wyślij</button>
     <button id="close">✓ Zamknij obrys</button>
+    <button id="mode">✨ Tryb: zwykły</button>
+    <button id="sig">🔊 Sygnał</button>
+    <button id="clr">🧹 Wyczyść</button>
     <button id="skip">Pomiń</button>
     <button id="undo">↶ Cofnij</button>
     <button id="sym">⇆ Symetria: wł.</button>
@@ -266,6 +276,299 @@ function wallAt(O,dir,planes){
 }
 /* ---------- Obrys pokoju wskazany przez użytkownika (pewny na telefonie) ---------- */
 let room=[], roomClosed=false;
+/* ======================= TRYBY DŹWIĘKOWE ======================= */
+const MODES=[['normal','✨ Tryb: zwykły'],['waves','🌊 Tryb: fale'],['bass','🔴 Tryb: mapa basu'],['listen','🎧 Tryb: odsłuch 3D'],['crawl','🎤 Tryb: sub crawl']];
+let mode='normal';
+function cycleMode(){ const i=MODES.findIndex(m=>m[0]===mode); setMode(MODES[(i+1)%MODES.length][0]); }
+function setMode(m){
+  if(mode==='listen') stopListen();
+  if(mode==='crawl') stopCrawl();
+  mode=m; guide=-1;
+  if(m==='listen') startListen();
+  if(m==='crawl') startCrawl();
+  if(m==='bass') bassKey='';
+  if(m!=='normal') say(MODES.find(x=>x[0]===m)[1].replace('Tryb: ',''),'ok');
+}
+const std=a=>{ const m=a.reduce((x,y)=>x+y,0)/a.length; return Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length); };
+const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
+
+/* --- ściany jako odcinki 2D: obrys albo ściany ze skanu Questa --- */
+function wallEdges(){
+  if(room.length>=2) return roomEdges();
+  const e=[];
+  for(const p of planes){
+    if(!p.vertical||p.world.length<2) continue;
+    let best=0, A=null, B=null;
+    for(let i=0;i<p.world.length;i++) for(let j=i+1;j<p.world.length;j++){ const d=hlen(sub(p.world[i],p.world[j])); if(d>best){best=d;A=p.world[i];B=p.world[j];} }
+    if(A&&best>0.4) e.push([A,B]);
+  }
+  return e;
+}
+
+/* --- 1. Fale dźwięku i pierwsze odbicia --- */
+function ring(c,r,col){
+  const N=44; let prev=null;
+  for(let k=0;k<=N;k++){
+    const a=k/N*Math.PI*2, p=[c[0]+Math.cos(a)*r,c[1],c[2]+Math.sin(a)*r];
+    if(prev && insideRoom(scl(add(prev,p),0.5))) seg(prev,p,0.014,col);
+    prev=p;
+  }
+}
+function reflections(S_,E){
+  const out=[];
+  for(const [A,B] of wallEdges()){
+    const d=norm([B[0]-A[0],0,B[2]-A[2]]), v=[S_[0]-A[0],0,S_[2]-A[2]], pr=dot(v,d);
+    const img=[2*(A[0]+d[0]*pr)-S_[0], S_[1], 2*(A[2]+d[2]*pr)-S_[2]];
+    // przecięcie odcinka img→E ze ścianą AB
+    const rx=E[0]-img[0], rz=E[2]-img[2], ex=B[0]-A[0], ez=B[2]-A[2], den=rx*ez-rz*ex;
+    if(Math.abs(den)<1e-6) continue;
+    const ax=A[0]-img[0], az=A[2]-img[2], t=(ax*ez-az*ex)/den, u=(ax*rz-az*rx)/den;
+    if(t<=0||t>=1||u<0||u>1) continue;
+    out.push([img[0]+rx*t, S_[1]+(E[1]-S_[1])*t, img[2]+rz*t]);
+  }
+  return out;
+}
+function drawWaves(L,t1){
+  L.out.forEach((o,i)=>{
+    if(guide>=0&&guide!==i) return;
+    const c=o.s.col;
+    for(let k=0;k<3;k++){ const ph=(t1*0.5+k/3)%1; ring(o.pos,0.1+ph*3.4,[c[0],c[1],c[2],(1-ph)*0.75]); }
+  });
+  const list = guide>=0 ? [L.out[guide]] : L.out.filter(o=>o.id==='L'||o.id==='R');
+  for(const o of list){
+    if(o.s.kind==='ceil'||o.s.kind==='floor') continue;
+    const c=o.s.col;
+    for(const P of reflections(o.pos,L.O)){
+      seg(o.pos,P,0.008,[c[0],c[1],c[2],0.8]); seg(P,L.O,0.008,[c[0],c[1],c[2],0.8]);
+      billboard(discTex([1,1,1]),P,0.06*camScale(P));
+      label(['Odbicie '+o.s.short,'panel / obraz / zasłona'],P,c,0.9);
+    }
+  }
+}
+
+/* --- 2. Mapa basu: model modalny prostokątnego pokoju --- */
+function roomRect(){
+  const E=(room.length>=3&&roomClosed)?roomEdges():(!hasDom?wallEdges():[]);
+  if(E.length<3) return null;
+  const pts=[]; let dir=null, best=0;
+  for(const [A,B] of E){ pts.push(A,B); const d=hlen(sub(B,A)); if(d>best){best=d;dir=sub(B,A);} }
+  const u=norm([dir[0],0,dir[2]]), v=[-u[2],0,u[0]];
+  let mnU=Infinity,mxU=-Infinity,mnV=Infinity,mxV=-Infinity;
+  for(const p of pts){ const a=dot(p,u), b=dot(p,v); mnU=Math.min(mnU,a); mxU=Math.max(mxU,a); mnV=Math.min(mnV,b); mxV=Math.max(mxV,b); }
+  const Lx=mxU-mnU, Ly=mxV-mnV;
+  if(Lx<1.2||Ly<1.2||Lx>15||Ly>15) return null;
+  return {u,v,u0:mnU,v0:mnV,Lx,Ly};
+}
+const FREQS=[]; for(let f=30;f<=120;f+=3) FREQS.push(f);
+function modalSetup(R,Lz){
+  const c=343, fmax=170, modes=[];
+  const NX=Math.ceil(2*R.Lx*fmax/c), NY=Math.ceil(2*R.Ly*fmax/c), NZ=Math.ceil(2*Lz*fmax/c);
+  for(let nx=0;nx<=NX;nx++) for(let ny=0;ny<=NY;ny++) for(let nz=0;nz<=NZ;nz++){
+    const f=c/2*Math.sqrt((nx/R.Lx)**2+(ny/R.Ly)**2+(nz/Lz)**2);
+    if(f<=fmax) modes.push({nx,ny,nz,w:2*Math.PI*f,e:(nx?2:1)*(ny?2:1)*(nz?2:1)});
+  }
+  return modes;
+}
+function psi(m,R,Lz,q){ return Math.cos(m.nx*Math.PI*q[0]/R.Lx)*Math.cos(m.ny*Math.PI*q[1]/R.Ly)*Math.cos(m.nz*Math.PI*q[2]/Lz); }
+function respDb(modes,R,Lz,src,rcv){
+  const ps=modes.map(m=>psi(m,R,Lz,src)*psi(m,R,Lz,rcv)*m.e);
+  return FREQS.map(f=>{
+    const w=2*Math.PI*f; let re=0, im=0;
+    for(let i=0;i<modes.length;i++){
+      const m=modes[i], a=m.w*m.w-w*w, b=2*0.08*Math.max(m.w,125)*w, d=a*a+b*b;
+      re+=ps[i]*a/d; im-=ps[i]*b/d;
+    }
+    return 10*Math.log10(re*re+im*im+1e-30);
+  });
+}
+const toRect=(R,p,h)=>[dot(p,R.u)-R.u0, dot(p,R.v)-R.v0, h];
+const fromRect=(R,x,y,fy)=>[R.u[0]*(x+R.u0)+R.v[0]*(y+R.v0), fy, R.u[2]*(x+R.u0)+R.v[2]*(y+R.v0)];
+let bass=null, bassKey='', bassAt=0;
+function updateBass(L){
+  const R=roomRect();
+  if(!R){ bass={err:true}; return; }
+  const sw=L.out.find(o=>o.id==='SW'), src=sw?sw.pos:add(L.O,scl(L.f,L.d));
+  const key=[R.Lx,R.Ly,R.u0,R.v0,src[0],src[2],S.ceil,S.ear,seatPt[0],seatPt[2]].map(v=>v.toFixed(2)).join();
+  if(key===bassKey || (bass&&!bass.err&&performance.now()-bassAt<400)) return;
+  bassKey=key; bassAt=performance.now();
+  const Lz=S.ceil, modes=modalSetup(R,Lz), fy=L.floorY, cl=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const sr=toRect(R,src,0.3);
+  sr[0]=cl(sr[0],0.05,R.Lx-0.05); sr[1]=cl(sr[1],0.05,R.Ly-0.05);
+  const nx=Math.max(3,Math.round(R.Lx/0.25)), ny=Math.max(3,Math.round(R.Ly/0.25)), cw=R.Lx/nx, ch=R.Ly/ny;
+  const cells=[];
+  for(let i=0;i<nx;i++) for(let j=0;j<ny;j++){
+    const x=(i+0.5)*cw, y=(j+0.5)*ch, w=fromRect(R,x,y,fy);
+    if(!insideRoom(w)) continue;
+    const db=respDb(modes,R,Lz,sr,[x,y,S.ear]);
+    cells.push({w,m:mean(db),sp:std(db)});
+  }
+  const avg=mean(cells.map(c=>c.m));
+  cells.forEach(c=>c.rel=c.m-avg);
+  const st=toRect(R,seatPt,S.ear);
+  const seatDb=respDb(modes,R,Lz,sr,st);
+  // najlepsze miejsce na subwoofer (zasada wzajemności: liczymy odpowiedź w miejscu odsłuchu)
+  let best=null;
+  for(let x=0.2;x<R.Lx-0.1;x+=0.3) for(let y=0.2;y<R.Ly-0.1;y+=0.3){
+    const w=fromRect(R,x,y,fy);
+    if(!insideRoom(w) || hlen(sub(w,seatPt))<0.8) continue;
+    const db=respDb(modes,R,Lz,[x,y,0.3],st), sp=std(db), lv=mean(db);
+    const sc=sp-0.12*(lv-avg);
+    if(!best||sc<best.sc) best={w,sp,sc};
+  }
+  bass={R,cells,cw,ch,seatRel:mean(seatDb)-avg,seatSp:std(seatDb),best};
+}
+function drawBass(L){
+  if(!bass||bass.err) return;
+  const R=bass.R;
+  for(const c of bass.cells){
+    const t=Math.max(-1,Math.min(1,c.rel/6)), a=0.15+0.35*Math.abs(t);
+    const col=t>=0?[1,0.28,0.2,a]:[0.25,0.5,1,a];
+    const p=add(c.w,[0,0.004,0]);
+    floorSeg(sub(p,scl(R.u,bass.cw/2)),add(p,scl(R.u,bass.cw/2)),bass.ch*0.96,col);
+  }
+  if(bass.best){
+    const b=add(bass.best.w,[0,0.01,0]);
+    flat(ringTex(),b,0.45+0.06*Math.sin(performance.now()/200),[1,0.85,0.2,1]);
+    label(['Najlepsze miejsce na subwoofer',`model · nierówność ±${bass.best.sp.toFixed(1)} dB`],b,[1,0.85,0.2]);
+  }
+}
+
+/* --- 4. Odsłuch 3D: wirtualne głośniki w słuchawkach --- */
+let lis=null;
+function audioCtx(){ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended') actx.resume(); return actx; }
+function pinkBuffer(ctx,sec){
+  const n=Math.floor(ctx.sampleRate*sec), b=ctx.createBuffer(1,n,ctx.sampleRate), d=b.getChannelData(0);
+  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for(let i=0;i<n;i++){
+    const w=Math.random()*2-1;
+    b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759; b2=0.969*b2+w*0.153852;
+    b3=0.8665*b3+w*0.3104856; b4=0.55*b4+w*0.5329522; b5=-0.7616*b5-w*0.016898;
+    let v=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11; b6=w*0.115926;
+    const env=Math.min(1,i/(0.05*ctx.sampleRate),(n-i)/(0.08*ctx.sampleRate)); d[i]=v*env;
+  }
+  return b;
+}
+function setPos3(node,v){ if(node.positionX){ node.positionX.value=v[0]; node.positionY.value=v[1]; node.positionZ.value=v[2]; } else node.setPosition(v[0],v[1],v[2]); }
+function setListener(pos,fwd,up){
+  const l=actx.listener;
+  if(l.positionX){ l.positionX.value=pos[0]; l.positionY.value=pos[1]; l.positionZ.value=pos[2];
+    l.forwardX.value=fwd[0]; l.forwardY.value=fwd[1]; l.forwardZ.value=fwd[2]; l.upX.value=up[0]; l.upY.value=up[1]; l.upZ.value=up[2]; }
+  else { l.setPosition(pos[0],pos[1],pos[2]); l.setOrientation(fwd[0],fwd[1],fwd[2],up[0],up[1],up[2]); }
+}
+function startListen(){
+  try{ const c=audioCtx(); lis={i:0,cur:-1,next:c.currentTime+0.4,buf:pinkBuffer(c,0.9)}; }
+  catch(e){ say('Ta przeglądarka nie odtwarza dźwięku 3D','err'); mode='normal'; }
+}
+function stopListen(){ lis=null; }
+function updateListen(L,vm){
+  if(!lis||!actx) return;
+  setListener(col(vm,3),scl(col(vm,2),-1),col(vm,1));
+  if(actx.currentTime<lis.next) return;
+  const idx=lis.i%L.out.length, o=L.out[idx]; lis.cur=idx; lis.i++;
+  const src=actx.createBufferSource(); src.buffer=lis.buf;
+  const pan=actx.createPanner(); pan.panningModel='HRTF'; pan.distanceModel='inverse'; pan.refDistance=1; pan.rolloffFactor=1;
+  setPos3(pan,o.pos);
+  const g=actx.createGain(); g.gain.value=o.s.kind==='floor'?1.2:0.7;
+  let node=src;
+  if(o.s.kind==='floor'){ const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=110; src.connect(lp); node=lp; }
+  node.connect(g); g.connect(pan); pan.connect(actx.destination);
+  src.start(); lis.next=actx.currentTime+1.25;
+}
+
+/* --- 7. Sub crawl z mikrofonem --- */
+let crawl=null, sigOsc=null;
+const crawlCells=new Map();
+async function startCrawl(){
+  try{
+    const c=audioCtx();
+    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const an=c.createAnalyser(); an.fftSize=8192; an.smoothingTimeConstant=0.5;
+    c.createMediaStreamSource(st).connect(an);
+    crawl={st,an,buf:new Float32Array(an.frequencyBinCount),cur:null};
+  }catch(e){ say('Brak dostępu do mikrofonu – zezwól na stronie startowej (🎤) i wróć','err'); mode='normal'; crawl=null; }
+}
+function stopCrawl(){ if(crawl){ crawl.st.getTracks().forEach(t=>t.stop()); crawl=null; } stopSig(); }
+function toggleSig(){
+  if(sigOsc){ stopSig(); return; }
+  const c=audioCtx(), o=c.createOscillator(), g=c.createGain(), t=c.currentTime;
+  o.type='sine'; g.gain.value=0.6; o.connect(g); g.connect(c.destination);
+  for(let k=0;k<75;k++){ o.frequency.setValueAtTime(30,t+k*4); o.frequency.exponentialRampToValueAtTime(120,t+k*4+3.9); }
+  o.start(); o.stop(t+300); sigOsc=o;
+  say('Sygnał 30–120 Hz – zagra przez głośniki połączone z telefonem (np. Bluetooth z amplitunerem)','ok');
+}
+function stopSig(){ if(sigOsc){ try{ sigOsc.stop(); }catch(e){} sigOsc=null; } }
+function updateCrawl(){
+  if(!crawl) return;
+  crawl.an.getFloatFrequencyData(crawl.buf);
+  const bw=actx.sampleRate/crawl.an.fftSize;
+  const band=(f0,f1)=>{ let s=0,n=0; for(let k=Math.ceil(f0/bw);k<=Math.floor(f1/bw);k++){ const v=crawl.buf[k]; if(isFinite(v)) s+=Math.pow(10,v/10); n++; } return 10*Math.log10(s/Math.max(1,n)+1e-20); };
+  const b=[band(30,50),band(50,80),band(80,120)];
+  const lvl=10*Math.log10(b.reduce((a,x)=>a+Math.pow(10,x/10),0)/3), spr=std(b);
+  crawl.cur={lvl,spr};
+  if(lvl<-90) return;                                // cisza – nie zapisujemy
+  const gx=Math.round(cam[0]/0.25), gz=Math.round(cam[2]/0.25), key=gx+','+gz;
+  let c=crawlCells.get(key);
+  if(!c){ c={x:gx*0.25,z:gz*0.25,lvl,spr,n:0}; crawlCells.set(key,c); }
+  c.lvl=(c.lvl*c.n+lvl)/(c.n+1); c.spr=(c.spr*c.n+spr)/(c.n+1); c.n=Math.min(c.n+1,80);
+}
+function crawlBest(){
+  const v=[...crawlCells.values()].filter(c=>c.n>=6); if(!v.length) return null;
+  const mx=Math.max(...v.map(c=>c.lvl)); let best=null, bs=-1e9;
+  for(const c of v){ const sc=(c.lvl-mx)-1.2*c.spr; c.sc=sc; if(sc>bs){bs=sc;best=c;} }
+  return best;
+}
+function drawCrawl(L){
+  const best=crawlBest(); if(!crawlCells.size) return;
+  const v=[...crawlCells.values()], scs=v.filter(c=>c.sc!==undefined).map(c=>c.sc), lo=Math.min(...scs,-12);
+  for(const c of v){
+    const p=[c.x,L.floorY+0.005,c.z];
+    let col=[0.6,0.6,0.6,0.25];
+    if(c.sc!==undefined){ const t=Math.max(0,Math.min(1,1-(c.sc/lo))); col=[1-t,0.35+0.6*t,0.25,0.5]; }
+    floorSeg(sub(p,[0.12,0,0]),add(p,[0.12,0,0]),0.24,col);
+  }
+  if(best){ const b=[best.x,L.floorY+0.01,best.z]; flat(ringTex(),b,0.45,[1,0.85,0.2,1]); label(['Tu postaw subwoofer','zmierzone: najrówniejszy bas'],b,[1,0.85,0.2]); }
+}
+function modeMsg(){
+  if(mode==='waves') return '🌊 Fale dźwięku: kręgi pokazują, jak dźwięk rozchodzi się z głośników, linie – pierwsze odbicia od ścian.';
+  if(mode==='bass') return bass&&bass.err ? '🔴 Mapa basu potrzebuje zamkniętego obrysu pokoju (✏ Popraw obrys).' : '🔴 Mapa basu (model): czerwone = bas dudni, niebieskie = bas słaby.';
+  if(mode==='listen') return '🎧 Odsłuch 3D – załóż słuchawki. Teraz gra: '+(lis&&lis.cur>=0&&lastLayout?lastLayout.out[lis.cur].s.name:'…');
+  if(mode==='crawl') return crawl ? '🎤 Sub crawl: chodź powoli z telefonem nisko przy podłodze – mapa rysuje się tam, gdzie byłeś.' : '🎤 Sub crawl: brak mikrofonu.';
+  return '';
+}
+function modeInfo(){
+  const l=[];
+  if(mode==='waves'){
+    l.push(guide>=0?'Odbicia dla wybranego głośnika.':'Odbicia pokazane dla L i R – „Następny” pokaże inne głośniki.');
+    l.push('W miejscu pierwszego odbicia na bocznej ścianie warto powiesić panel akustyczny, obraz albo zasłonę – dźwięk będzie czystszy.');
+    if(!wallEdges().length) l.push('Brak ścian – zrób obrys pokoju, żeby zobaczyć odbicia.');
+  } else if(mode==='bass'){
+    if(bass&&!bass.err){
+      l.push(`W miejscu odsłuchu: bas ${bass.seatRel>=0?'+':''}${bass.seatRel.toFixed(1)} dB względem pokoju, nierówność ±${bass.seatSp.toFixed(1)} dB (30–120 Hz).`);
+      if(bass.best) l.push(`Złoty znacznik: najlepsze miejsce na subwoofer wg modelu (±${bass.best.sp.toFixed(1)} dB). Przenieś SW (✋), a mapa się przeliczy.`);
+      l.push('To model prostokątnego pokoju o twardych ścianach – traktuj jako wskazówkę. Sub crawl zmierzy bas naprawdę.');
+    }
+  } else if(mode==='listen'){
+    l.push('Szum gra po kolei z każdego wirtualnego głośnika. Obracaj głowę i chodź – dźwięk zostaje w miejscu głośnika.');
+    l.push('Usiądź w miejscu odsłuchu, żeby usłyszeć układ tak jak z kanapy. Bez słuchawek efekt 3D nie działa.');
+  } else if(mode==='crawl'){
+    l.push('1. Postaw subwoofer na kanapie, w miejscu odsłuchu.');
+    l.push('2. Puść muzykę z mocnym basem albo „🔊 Sygnał” (gdy telefon jest połączony z amplitunerem przez Bluetooth).');
+    l.push('3. Chodź z telefonem przy podłodze wzdłuż miejsc, gdzie może stać subwoofer. Złoty znacznik = najrówniejszy bas.');
+    if(crawl&&crawl.cur) l.push(`Teraz: poziom ${crawl.cur.lvl.toFixed(0)} dB (wzgl.), nierówność ±${crawl.cur.spr.toFixed(1)} dB · punkty: ${crawlCells.size}`);
+    l.push('Mikrofon telefonu słabo słyszy najniższy bas – wynik porównuje miejsca między sobą.');
+  }
+  if(!hasDom) l.push('A/X = zmień tryb');
+  return l;
+}
+let modeBtnPrev=false;
+function pollQuestButtons(){
+  if(hasDom||!session) return;
+  let pr=false;
+  for(const src of session.inputSources){ const g=src.gamepad; if(g&&g.buttons&&g.buttons[4]&&g.buttons[4].pressed) pr=true; }
+  if(pr&&!modeBtnPrev&&step===3&&!scanning) cycleMode();
+  modeBtnPrev=pr;
+}
+
 function roomEdges(){
   const e=[]; for(let i=0;i+1<room.length;i++) e.push([room[i],room[i+1]]);
   if(roomClosed&&room.length>=3) e.push([room[room.length-1],room[0]]);
@@ -926,6 +1229,7 @@ function stepMsg(){
   if(drag) return `✋ Przenosisz: ${grabName(drag)} – wyceluj w nowe miejsce i ${act()}, żeby upuścić.`;
   if(hover) return `✋ ${hasDom?'Tapnij':'Spust'}, żeby przenieść: ${grabName(hover)}`;
   const nd=doneSet.size, n=lastLayout.out.length;
+  if(mode!=='normal'&&guide===-1) return modeMsg();
   if(guide===-1) return nd>=n ? `🎉 Wszystkie ${n} głośniki ustawione! Wpisz odległości w amplitunerze.` : `✅ Gotowe! Ustawione: ${nd}/${n}. Naciśnij „Następny”, a poprowadzę Cię do każdego głośnika.`;
   const o=lastLayout.out[guide];
   const me=[cam[0],0,cam[2]], tgt=[o.pos[0],0,o.pos[2]], dist=hlen(sub(tgt,me));
@@ -957,6 +1261,7 @@ function infoText(){
     lines.push(hasDom?'„Pomiń” = bez obrysu (sprawdzisz ściany wzrokiem).':'Spust = narożnik · Grip = cofnij');
     return lines.join('\n');
   }
+  if(mode!=='normal'&&guide===-1) return modeInfo().join('\n');
   if(guide===-1){
     const vr=viewingRange(S.tvIn);
     lines.push(`Zestaw ${S.cfg} · TV ${S.tvIn}" · odległość od TV ${L.d.toFixed(2)} m (zalecana ${vr.thx.toFixed(1)}–${vr.smpte.toFixed(1)} m)`);
@@ -1037,6 +1342,7 @@ async function startAR(){
   session.addEventListener('inputsourceschange',onSources);
   for(const src of session.inputSources) addCtrl(src);
   session.addEventListener('end',()=>{
+    setMode('normal');
     if(lastLayout||LS('gar-last')){ if(lastLayout) saveLast(); const v=LS('gar-last'); if(v&&v.d){ $('dist2d').value=v.d.toFixed(1); } }
     $('tvIn').value=S.tvIn; drawPlan(); saveSettings();
     try{ if(wakeLock) wakeLock.release(); }catch(e){} wakeLock=null;
@@ -1148,6 +1454,12 @@ function onFrame(t,frame){
     if(!room.length) drawRoomOutline(L.floorY,scanning?1:0.45);
     drawRoom(L.floorY,L.ceilY,scanning?1:0.5);
     for(const o of L.out){ const ob=o.s.kind!=='ceil'?obstacleAt(o.pos):null; o.onObj=ob?ob.name:null; o.blocked=!!(ob&&ob.blocking); }
+    if(!scanning){
+      if(mode==='waves') drawWaves(L,t1);
+      if(mode==='bass'){ updateBass(L); drawBass(L); }
+      if(mode==='listen'){ updateListen(L,pose.transform.matrix); if(lis&&lis.cur>=0){ const o=L.out[lis.cur]; billboard(discTex(o.s.col),o.pos,(0.16+0.04*Math.sin(t1*12))*camScale(o.pos)); } }
+      if(mode==='crawl'){ updateCrawl(); drawCrawl(L); }
+    }
     if(guide===-1) label(['Miejsce odsłuchu',`uszy ${cm(S.ear)} cm`],L.O,[1,1,1]);
     const partner = drag&&drag.type==='spk'&&sym ? PAIR[drag.id] : null;
     L.out.forEach((o,i)=>{
@@ -1215,6 +1527,7 @@ function onFrame(t,frame){
     }
   }
 
+  pollQuestButtons();
   if(hasDom) drawMini();
   const msg=stepMsg(), info=infoText();
   if(hasDom){
@@ -1280,7 +1593,7 @@ function updateButtons(){
   const auto=(step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat);
   const g=step===3&&!scanning;
   const sel=g&&guide>=0&&lastLayout?lastLayout.out[guide]:null;
-  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0, guide, sel&&doneSet.has(sel.id), room.length, roomClosed].join();
+  const st=[mode, !!sigOsc, crawlCells.size>0, auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0, guide, sel&&doneSet.has(sel.id), room.length, roomClosed].join();
   if(st===btnState) return; btnState=st;
   const show=(id,v)=>$(id).style.display=v?'':'none';
   show('manual',auto);
@@ -1297,7 +1610,10 @@ function updateButtons(){
   show('done',!!sel&&!drag); $('done').textContent=sel&&doneSet.has(sel.id)?'↺ Odznacz':'✓ Ustawiony';
   show('up',!!sel&&!drag&&sel.s.kind!=='ceil'); show('down',!!sel&&!drag&&sel.s.kind!=='ceil');
   show('ear',(step===2||(g&&guide===-1))&&!drag);
-  show('share',g&&guide===-1&&!drag);
+  show('share',g&&guide===-1&&!drag&&mode==='normal');
+  show('mode',g&&!drag); $('mode').textContent=MODES.find(m=>m[0]===mode)[1];
+  show('sig',g&&mode==='crawl'); $('sig').textContent=sigOsc?'⏹ Sygnał':'🔊 Sygnał';
+  show('clr',g&&mode==='crawl'&&crawlCells.size>0);
   show('reset',!sel);
 }
 
@@ -1338,6 +1654,8 @@ $('undo').onclick=undo; $('reset').onclick=reset; $('manual').onclick=goManual;
 $('prev').onclick=prevSpk; $('next').onclick=nextSpk;
 $('sym').onclick=()=>{ sym=!sym; say(sym?'Symetria włączona – para przesuwa się lustrzanie':'Symetria wyłączona – przesuwasz pojedynczy głośnik'); };
 $('def').onclick=()=>{ ovr={}; say('Przywrócono zalecane pozycje','ok'); };
+$('mode').onclick=cycleMode; $('sig').onclick=()=>{ toggleSig(); btnState=''; }; $('clr').onclick=()=>{ crawlCells.clear(); say('Wyczyszczono pomiary'); };
+$('micBtn').onclick=async()=>{ try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); st.getTracks().forEach(t=>t.stop()); $('micBtn').textContent='🎤 Mikrofon dozwolony ✓'; }catch(e){ $('micBtn').textContent='🎤 Brak zgody – zmień w ustawieniach strony'; } };
 $('done').onclick=markDone; $('close').onclick=closeRoom; $('skip').onclick=()=>finishScan(); $('up').onclick=()=>adjustHeight(0.05); $('down').onclick=()=>adjustHeight(-0.05);
 $('ear').onclick=measureEar; $('share').onclick=()=>shareText(summaryText());
 $('shareLast').onclick=()=>{ const v=LS('gar-last'); shareText(v&&v.t); };
