@@ -272,7 +272,8 @@ function computeLayout(seat, tv, S, planes, ovr){
 // odległość do ściany: z płaszczyzn pokoju (Quest) i z promieni skanujących (telefon i Quest)
 function wallAt(O,dir,planes){
   const pd=polyDist(O,dir);
-  return Math.min(wallDist(O,dir,planes), pd, room.length>=2?Infinity:rayWall(dir));
+  // na telefonie płaszczyzny ARCore są zawodne – ściany tylko z obrysu
+  return Math.min(hasDom?Infinity:wallDist(O,dir,planes), pd, room.length>=2?Infinity:rayWall(dir));
 }
 /* ---------- Obrys pokoju wskazany przez użytkownika (pewny na telefonie) ---------- */
 let room=[], roomClosed=false;
@@ -1247,7 +1248,7 @@ function infoText(){
       lines.push(`Telewizor: ${tvWidth.toFixed(2)} m szerokości ≈ ${S.tvIn}"`);
       if(reticlePos) lines.push(`Odległość od TV: ${hlen(sub(reticlePos,tvPt)).toFixed(2)} m`);
     }
-    if(planesSupported) lines.push(`Wykryte powierzchnie pokoju: ${planes.length}`);
+    if(planesSupported&&!hasDom) lines.push(`Ściany ze skanu pokoju: ${planes.filter(p=>p.vertical).length}`);
     if(!hasDom) lines.push(step===0&&autoTV&&!manualTV || step===2&&autoSeat&&!manualSeat ? 'Grip = wskaż ręcznie' : 'Grip = cofnij');
     return lines.join('\n');
   }
@@ -1394,9 +1395,10 @@ function onFrame(t,frame){
   tris=[]; quads=[];
   const t1=t/1000;
   drawObjects(step===3&&!scanning?0.45:1);
-  for(const p of planes){
-    const c=p.vertical?[1,1,1,0.25]:[0.55,0.75,1,0.2];
-    for(let i=0;i<p.world.length;i++) seg(p.world[i],p.world[(i+1)%p.world.length],0.012,c);
+  // Telefon dzieli podłogę na wiele kawałków – nie rysujemy ich. Quest: tylko ściany ze skanu.
+  if(!hasDom) for(const p of planes){
+    if(!p.vertical) continue;
+    for(let i=0;i<p.world.length;i++) seg(p.world[i],p.world[(i+1)%p.world.length],0.012,[1,1,1,0.25]);
   }
   if(src){
     const cp=frame.getPose(src.targetRaySpace,refSpace);
