@@ -85,7 +85,8 @@
       <li>Na telefonie przez kilka sekund powoli „maluj” kamerą podłogę, aż pojawi się celownik.</li>
       <li>Celownik <b style="color:#5be38a">zielony</b> = pomiar stabilny, możesz tapnąć. Biały = trzymaj chwilę nieruchomo.</li>
       <li>Telewizor mierzysz, wskazując jego <b>lewą</b> i <b>prawą krawędź</b> (ramkę ekranu albo podłogę dokładnie pod krawędziami).</li>
-      <li>Na Queście 3 z konfiguracją przestrzeni telewizor i kanapa mogą zostać wykryte same.</li>
+      <li>Potem wskazujesz po kolei <b>narożniki pokoju</b> (albo podstawy ścian) – dzięki temu głośniki nigdy nie wylądują za ścianą.</li>
+      <li>Na Queście 3 z konfiguracją przestrzeni telewizor, kanapa i ściany mogą zostać wykryte same.</li>
     </ol>
   </div>
 
@@ -98,8 +99,9 @@
 
   <div class="card">
     <details>
-      <summary>Wersja 1.4 – co nowego</summary>
+      <summary>Wersja 1.5 – co nowego</summary>
       <ol>
+        <li><b>Obrys pokoju:</b> na telefonie wskazujesz narożniki pokoju – ściany są dokładne, głośniki nigdy za ścianą.</li>
         <li>Wizualizacja mebli ze skanu Questa i obrys ścian/przeszkód na telefonie.</li>
         <li>Ostrzeżenie, gdy głośnik wypada na kanapie, łóżku albo w drzwiach.</li>
         <li>Lista „✓ Ustawiony”, minimapa, łuk kąta, kierunek skręcenia głośnika.</li>
@@ -135,6 +137,8 @@
     <button id="down">▼ 5 cm</button>
     <button id="ear">📏 Uszy</button>
     <button id="share">📤 Wyślij</button>
+    <button id="close">✓ Zamknij obrys</button>
+    <button id="skip">Pomiń</button>
     <button id="undo">↶ Cofnij</button>
     <button id="sym">⇆ Symetria: wł.</button>
     <button id="def">↺ Domyślne</button>
@@ -256,7 +260,51 @@ function computeLayout(seat, tv, S, planes, ovr){
   return {out,O,floorY,earY,ceilY,d,f,right};
 }
 // odległość do ściany: z płaszczyzn pokoju (Quest) i z promieni skanujących (telefon i Quest)
-function wallAt(O,dir,planes){ return Math.min(wallDist(O,dir,planes), rayWall(dir)); }
+function wallAt(O,dir,planes){
+  const pd=polyDist(O,dir);
+  return Math.min(wallDist(O,dir,planes), pd, room.length>=2?Infinity:rayWall(dir));
+}
+/* ---------- Obrys pokoju wskazany przez użytkownika (pewny na telefonie) ---------- */
+let room=[], roomClosed=false;
+function roomEdges(){
+  const e=[]; for(let i=0;i+1<room.length;i++) e.push([room[i],room[i+1]]);
+  if(roomClosed&&room.length>=3) e.push([room[room.length-1],room[0]]);
+  return e;
+}
+// odległość w poziomie od O w kierunku dir do najbliższej ściany obrysu
+function polyDist(O,dir){
+  let best=Infinity;
+  for(const [A,B] of roomEdges()){
+    const ex=B[0]-A[0], ez=B[2]-A[2], den=dir[0]*ez-dir[2]*ex;
+    if(Math.abs(den)<1e-6) continue;
+    const ax=A[0]-O[0], az=A[2]-O[2];
+    const t=(ax*ez-az*ex)/den, u=(ax*dir[2]-az*dir[0])/den;
+    if(t>0.02&&u>=-0.02&&u<=1.02&&t<best) best=t;
+  }
+  return best;
+}
+function insideRoom(p){
+  if(!roomClosed||room.length<3) return true;
+  let c=false;
+  for(let i=0,j=room.length-1;i<room.length;j=i++){
+    const a=room[i], b=room[j];
+    if(((a[2]>p[2])!==(b[2]>p[2])) && (p[0]<(b[0]-a[0])*(p[2]-a[2])/(b[2]-a[2])+a[0])) c=!c;
+  }
+  return c;
+}
+function addCorner(){
+  if(!reticlePos){ say('Wyceluj w podłogę przy ścianie albo w samą ścianę','err'); return; }
+  const fy=seatPt?seatPt[1]:floorY(), p=[reticlePos[0],fy,reticlePos[2]];
+  if(room.length>=3 && hlen(sub(p,room[0]))<0.35){ closeRoom(); return; }
+  if(room.length && hlen(sub(p,room[room.length-1]))<0.15){ say('Ten punkt jest za blisko poprzedniego','err'); return; }
+  room.push(p); okFx(room.length===1?'Pierwszy narożnik. Wskaż kolejny.':'');
+}
+function closeRoom(){
+  if(room.length<3){ say('Wskaż co najmniej 3 narożniki pokoju','err'); return; }
+  roomClosed=true; finishScan();
+}
+function undoCorner(){ if(roomClosed){ roomClosed=false; return; } room.pop(); }
+function wallFromSeat(dir){ return lastLayout?wallAt(lastLayout.O,dir,planes):Infinity; }
 let rays=[];            // 36 promieni co 10° wokół miejsca odsłuchu: {dir, src, dist, hit}
 const RAY_N=36;
 function rayWall(dir){
@@ -543,7 +591,7 @@ function cancelDrag(){
 
 function place(){
   if(step===3){
-    if(scanning){ finishScan(); return; }
+    if(scanning){ if(questWalls()) finishScan(); else addCorner(); return; }
     if(drag){ drop(); return; }
     const g=findGrab();
     if(g){ startDrag(g); return; }
@@ -571,10 +619,12 @@ function place(){
     seatPt=p; startGuide();
   }
 }
-function startGuide(){ step=3; guide=-1; scanning=true; doneSet.clear(); makeRays(); okFx('Teraz zeskanuj ściany. Obróć się powoli dookoła.'); }
+function startGuide(){ step=3; guide=-1; scanning=true; doneSet.clear(); makeRays();
+  okFx(questWalls()?'Ściany ze skanu pokoju wykryte.':'Teraz wskaż narożniki pokoju, po kolei dookoła.'); }
+function questWalls(){ return !hasDom && planes.filter(p=>p.vertical).length>=3; }
 function nSpk(){ return (CONFIGS[S.cfg]||B51).length; }
 function nextSpk(){
-  if(scanning){ finishScan(); return; }
+  if(scanning){ if(room.length>=3&&!roomClosed) closeRoom(); else finishScan(); return; }
   guide = guide+1>=nSpk() ? -1 : guide+1; announce();
 }
 /* ---------- Lista „ustawione” i ogłaszanie ---------- */
@@ -657,7 +707,7 @@ let scanning=false, rayGen=0;
 function clearRays(){ rayGen++; for(const r of rays) if(r.src) r.src.cancel(); rays=[]; }
 function makeRays(){
   clearRays();
-  if(!session||!seatPt) return;
+  if(!session||!seatPt||hasDom) return;   // na telefonie ARCore zgaduje ściany zawodnie – tam obrys ręczny
   const gen=rayGen, o=[seatPt[0],seatPt[1]+S.ear,seatPt[2]];
   for(let i=0;i<RAY_N;i++){
     const a=i/RAY_N*Math.PI*2, dir=[Math.sin(a),0,Math.cos(a)];
@@ -702,23 +752,29 @@ function wallCoverage(){
 // czy w kierunkach głośników przy uszach/podłodze wykryto ściany
 function missingDirs(){
   if(!lastLayout) return [];
+  if(roomClosed) return lastLayout.out.filter(o=>o.s.kind!=='ceil'&&!insideRoom(o.pos));
+  if(hasDom) return lastLayout.out.filter(o=>o.s.kind!=='ceil'&&!isFinite(wallFromSeat(norm([o.pos[0]-lastLayout.O[0],0,o.pos[2]-lastLayout.O[2]]))));
   return lastLayout.out.filter(o=>o.s.kind!=='ceil' && rays.length && !isFinite(rayWall(norm([o.pos[0]-lastLayout.O[0],0,o.pos[2]-lastLayout.O[2]]))) && !isFinite(wallDist(lastLayout.O,norm([o.pos[0]-lastLayout.O[0],0,o.pos[2]-lastLayout.O[2]]),planes)));
 }
 function finishScan(){
   scanning=false; guide=-1;
   const miss=missingDirs();
-  say(miss.length ? `Ściany nie wykryto za: ${miss.map(o=>o.s.short).join(', ')} – sprawdź te miejsca wzrokiem` : 'Ściany wykryte – żaden głośnik nie stoi za ścianą ✓', miss.length?'err':'ok');
+  if(roomClosed && !insideRoom(seatPt)) say('Miejsce odsłuchu wypada poza obrysem – sprawdź narożniki (Cofnij)','err');
+  else if(roomClosed) say(miss.length?`Poza pokojem: ${miss.map(o=>o.s.short).join(', ')} – przenieś je`:'Obrys pokoju gotowy – żaden głośnik nie stoi za ścianą ✓', miss.length?'err':'ok');
+  else say(miss.length ? `Bez obrysu nie wiem, gdzie są ściany za: ${miss.map(o=>o.s.short).join(', ')} – sprawdź wzrokiem` : 'Ściany wykryte ✓', miss.length?'err':'ok');
   saveLast();
 }
 function prevSpk(){ guide = guide-1<-1 ? nSpk()-1 : guide-1; announce(); }
 function undo(){
   if(drag){ cancelDrag(); return; }
+  if(step===3&&scanning&&room.length){ undoCorner(); return; }
+  if(step===3&&!scanning&&guide===-1&&room.length){ scanning=true; roomClosed=false; say('Popraw obrys: Cofnij usuwa ostatni narożnik'); return; }
   if(step===3){ if(guide!==-1&&!scanning){ prevSpk(); return; } seatPt=null; step=2; manualSeat=false; scanning=false; clearRays(); }
   else if(step===2){ if(tvFromAuto){ tvPt=null; step=0; manualTV=false; } else { tvR=null; tvPt=null; step=1; } }
   else if(step===1){ tvL=null; step=0; }
 }
 function goManual(){ if(step===0) manualTV=true; if(step===2) manualSeat=true; }
-function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; ovr={}; drag=null; scanning=false; clearRays(); doneSet.clear(); ceilDone=false; }
+function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; ovr={}; drag=null; scanning=false; clearRays(); doneSet.clear(); ceilDone=false; room=[]; roomClosed=false; }
 
 /* ---------- Wykrywanie TV i kanapy ze skanu pokoju (Quest) ---------- */
 const RX_TV=/screen|tv|television|monitor|ekran/i, RX_SEAT=/couch|sofa|seat|kanapa/i;
@@ -808,6 +864,23 @@ function obstacleAt(p){
   }
   return null;
 }
+function drawRoom(fy,cy,alpha){
+  if(!room.length) return;
+  const c=[0.35,0.85,1,0.95*alpha], cw=[0.35,0.85,1,0.28*alpha], h=Math.min(cy-fy,2.6);
+  for(const p of room){ const b=[p[0],fy+0.01,p[2]]; seg(b,add(b,[0,h,0]),0.02,cw); billboard(discTex([0.35,0.85,1]),add(b,[0,0.03,0]),0.06*camScale(b),[1,1,1,alpha]); }
+  for(const [A,B] of roomEdges()){
+    const a=[A[0],fy+0.01,A[2]], b=[B[0],fy+0.01,B[2]];
+    floorSeg(a,b,0.045,c);
+    seg(add(a,[0,h,0]),add(b,[0,h,0]),0.012,cw);
+    for(let k=1;k<4;k++){ const y=h*k/4; seg(add(a,[0,y,0]),add(b,[0,y,0]),0.006,[cw[0],cw[1],cw[2],cw[3]*0.6]); }
+    if(alpha>0.9) label([fmtM(hlen(sub(B,A)))],[(a[0]+b[0])/2,fy+0.05,(a[2]+b[2])/2],[0.35,0.85,1]);
+  }
+  if(scanning&&!roomClosed&&reticlePos){
+    const last=room[room.length-1], r=[reticlePos[0],fy+0.01,reticlePos[2]];
+    floorSeg([last[0],fy+0.01,last[2]],r,0.025,[1,1,1,0.7]);
+    if(room.length>=2) floorSeg(r,[room[0][0],fy+0.01,room[0][2]],0.012,[1,1,1,0.3]);
+  }
+}
 // telefon: obrys ścian ze skanu; bliższe fragmenty = przeszkoda (szafa, regał)
 function drawRoomOutline(fy,alpha){
   const f=rays.filter(r=>isFinite(r.dist)).map(r=>r.dist).sort((a,b)=>a-b);
@@ -845,8 +918,10 @@ function stepMsg(){
   }
   if(!lastLayout) return '';
   if(scanning){
-    const pct=Math.round(wallCoverage()*100);
-    return `🧱 Skanowanie ścian: ${pct}% – obróć się powoli dookoła i ${hasDom?'celuj telefonem':'patrz'} w każdą ścianę wokół kanapy. Potem ${hasDom?'„Dalej”':'spust'}.`;
+    if(questWalls()) return `🧱 Ściany ze skanu Questa wykryte (${planes.filter(p=>p.vertical).length}) ✓ – spust = dalej.`;
+    if(!room.length) return `🧱 Obrys pokoju: wyceluj w pierwszy NAROŻNIK pokoju (miejsce, gdzie ściany stykają się z podłogą) i ${act()}.`;
+    if(room.length<3) return `🧱 Narożnik ${room.length} ✓ – teraz następny, idąc dookoła pokoju (${act()}).`;
+    return `🧱 Narożników: ${room.length}. Wskaż kolejny albo naciśnij „✓ Zamknij obrys” (lub wyceluj w pierwszy narożnik).`;
   }
   if(drag) return `✋ Przenosisz: ${grabName(drag)} – wyceluj w nowe miejsce i ${act()}, żeby upuścić.`;
   if(hover) return `✋ ${hasDom?'Tapnij':'Spust'}, żeby przenieść: ${grabName(hover)}`;
@@ -874,20 +949,21 @@ function infoText(){
   }
   const L=lastLayout; if(!L) return '';
   if(scanning){
-    lines.push('Kreski wokół miejsca odsłuchu: 🟢 ściana wykryta, 🔴 jeszcze nie. Głośniki same przesuwają się przed wykryte ściany.');
-    const miss=missingDirs();
-    if(miss.length) lines.push('Brakuje ścian za: '+miss.map(o=>o.s.short).join(', '));
-    else lines.push('Wszystkie kierunki głośników sprawdzone ✓');
-    lines.push('Gładkie białe ściany wykrywają się gorzej – celuj w miejsca z obrazem, kontaktem, listwą albo meblem.');
-    if(!hasDom) lines.push('Spust = zakończ skanowanie · Grip = cofnij');
+    if(questWalls()){ lines.push('Głośniki same przesuwają się przed ściany ze skanu.'); lines.push('Spust = dalej · Grip = cofnij'); return lines.join('\n'); }
+    lines.push('Narożnik zasłonięty meblem? Wskaż dowolny punkt na podstawie ściany albo samą ścianę – liczy się kierunek ściany.');
+    lines.push('Idź dookoła w jednym kierunku. Wnęki i załamania ścian też wskaż jako narożniki.');
+    if(reticlePos&&room.length) lines.push(`Ta ściana: ${fmtM(hlen(sub(reticlePos,room[room.length-1])))}`);
+    lines.push('Głośniki od razu przesuwają się przed wskazane ściany.');
+    lines.push(hasDom?'„Pomiń” = bez obrysu (sprawdzisz ściany wzrokiem).':'Spust = narożnik · Grip = cofnij');
     return lines.join('\n');
   }
   if(guide===-1){
     const vr=viewingRange(S.tvIn);
     lines.push(`Zestaw ${S.cfg} · TV ${S.tvIn}" · odległość od TV ${L.d.toFixed(2)} m (zalecana ${vr.thx.toFixed(1)}–${vr.smpte.toFixed(1)} m)`);
     const off=axisOffset(); if(Math.abs(off)>0.25) lines.push(`⚠ Siedzisz ${cm(Math.abs(off))} cm na ${off>0?'prawo':'lewo'} od środka TV – najlepiej siedzieć na jego osi.`);
-    const back=rayWall(scl(L.f,-1)); if(back<0.45) lines.push(`⚠ Kanapa stoi ${cm(back)} cm od ściany za Tobą – bas może dudnić. Jeśli możesz, odsuń ją na 30+ cm.`);
-    const wl=rayWall(scl(L.right,-1)), wr=rayWall(L.right);
+    if(!roomClosed&&!questWalls()&&!planes.some(p=>p.vertical)) lines.push('ℹ Bez obrysu pokoju nie widzę ścian – sprawdź wzrokiem, czy głośniki nie wypadają za ścianą (Cofnij → obrys).');
+    const back=wallFromSeat(scl(L.f,-1)); if(back<0.45) lines.push(`⚠ Kanapa stoi ${cm(back)} cm od ściany za Tobą – bas może dudnić. Jeśli możesz, odsuń ją na 30+ cm.`);
+    const wl=wallFromSeat(scl(L.right,-1)), wr=wallFromSeat(L.right);
     if(isFinite(wl)&&isFinite(wr)&&Math.abs(wl-wr)>0.6) lines.push(`ℹ Pokój niesymetryczny: lewa ściana ${fmtM(wl)}, prawa ${fmtM(wr)} – autokalibracja częściowo to wyrówna.`);
     const blk=L.out.filter(o=>o.blocked); if(blk.length) lines.push('⚠ Na przeszkodzie: '+blk.map(o=>`${o.s.short} (${o.onObj})`).join(', ')+' – przenieś znacznik.');
     if(L.out.some(o=>o.clamped)) lines.push('Głośniki przy ścianach: '+L.out.filter(o=>o.clamped).map(o=>o.s.short).join(', ')+' – przysunięte przed ścianę, kąt zachowany.');
@@ -1007,7 +1083,7 @@ function onFrame(t,frame){
   if(step===0||step===2) detectObjects(frame);
   collectObjects(frame);
   ceilingFromPlanes();
-  if(rays.length){ updateRays(frame); recordReticleWall(); }
+  if(rays.length){ updateRays(frame); }
 
   tris=[]; quads=[];
   const t1=t/1000;
@@ -1069,7 +1145,8 @@ function onFrame(t,frame){
       const a0=add(so,scl(r.dir,0.45)), a1=add(so,scl(r.dir,0.7));
       floorSeg(a0,a1,0.03,isFinite(r.dist)?[0.3,0.95,0.5,0.8*ra]:[1,0.3,0.3,0.8*ra]);
     }
-    drawRoomOutline(L.floorY,scanning?1:0.45);
+    if(!room.length) drawRoomOutline(L.floorY,scanning?1:0.45);
+    drawRoom(L.floorY,L.ceilY,scanning?1:0.5);
     for(const o of L.out){ const ob=o.s.kind!=='ceil'?obstacleAt(o.pos):null; o.onObj=ob?ob.name:null; o.blocked=!!(ob&&ob.blocking); }
     if(guide===-1) label(['Miejsce odsłuchu',`uszy ${cm(S.ear)} cm`],L.O,[1,1,1]);
     const partner = drag&&drag.type==='spk'&&sym ? PAIR[drag.id] : null;
@@ -1173,6 +1250,7 @@ function drawMini(){
   const L=lastLayout, ctx=cv.getContext('2d'), W=cv.width, c=W/2;
   const loc=p=>{ const v=[p[0]-seatPt[0],0,p[2]-seatPt[2]]; return [dot(v,L.right), -dot(v,L.f)]; };
   let maxR=L.d; L.out.forEach(o=>{ const q=loc(o.pos); maxR=Math.max(maxR,Math.hypot(q[0],q[1])); });
+  room.forEach(p=>{ const q=loc(p); maxR=Math.max(maxR,Math.min(8,Math.hypot(q[0],q[1]))); });
   const me=loc(cam); maxR=Math.max(maxR,Math.min(6,Math.hypot(me[0],me[1])));
   const sc=(c-18)/(maxR+0.2), P=q=>[c+q[0]*sc,c+q[1]*sc];
   ctx.clearRect(0,0,W,W);
@@ -1180,6 +1258,8 @@ function drawMini(){
   // ściany ze skanu
   ctx.fillStyle='rgba(80,240,130,0.7)';
   for(const r of rays) if(isFinite(r.dist)){ const q=P(loc(r.hit)); ctx.fillRect(q[0]-3,q[1]-3,6,6); }
+  if(room.length>=2){ ctx.strokeStyle='rgba(90,215,255,0.9)'; ctx.lineWidth=4; ctx.beginPath();
+    room.forEach((p,i)=>{ const q=P(loc(p)); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); }); if(roomClosed) ctx.closePath(); ctx.stroke(); }
   const t=P(loc(tvPt)); ctx.fillStyle='#e8ecf4'; ctx.fillRect(t[0]-22,t[1]-4,44,8);
   ctx.beginPath(); ctx.arc(c,c,9,0,Math.PI*2); ctx.fill();
   L.out.forEach((o,i)=>{
@@ -1200,15 +1280,18 @@ function updateButtons(){
   const auto=(step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat);
   const g=step===3&&!scanning;
   const sel=g&&guide>=0&&lastLayout?lastLayout.out[guide]:null;
-  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0, guide, sel&&doneSet.has(sel.id)].join();
+  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0, guide, sel&&doneSet.has(sel.id), room.length, roomClosed].join();
   if(st===btnState) return; btnState=st;
   const show=(id,v)=>$(id).style.display=v?'':'none';
   show('manual',auto);
   show('prev',g&&!drag);
-  show('next',step===3&&!drag);
-  $('next').textContent=scanning?'Dalej ▶':'Następny ▶';
-  show('undo',(step>0&&step<3)||drag);
-  $('undo').textContent=drag?'✕ Anuluj':'↶ Cofnij';
+  show('next',step===3&&!drag&&!scanning);
+  $('next').textContent='Następny ▶';
+  show('close',scanning&&room.length>=3&&!roomClosed);
+  show('skip',scanning&&room.length<3);
+  const fixRoom=g&&guide===-1&&!drag&&room.length>0;
+  show('undo',(step>0&&step<3)||drag||(scanning&&room.length>0)||fixRoom);
+  $('undo').textContent=drag?'✕ Anuluj':(scanning&&room.length?'↶ Cofnij narożnik':fixRoom?'✏ Popraw obrys':'↶ Cofnij');
   show('sym',g&&!drag); $('sym').textContent='⇆ Symetria: '+(sym?'wł.':'wył.');
   show('def',g&&!drag&&Object.keys(ovr).length>0);
   show('done',!!sel&&!drag); $('done').textContent=sel&&doneSet.has(sel.id)?'↺ Odznacz':'✓ Ustawiony';
@@ -1255,7 +1338,7 @@ $('undo').onclick=undo; $('reset').onclick=reset; $('manual').onclick=goManual;
 $('prev').onclick=prevSpk; $('next').onclick=nextSpk;
 $('sym').onclick=()=>{ sym=!sym; say(sym?'Symetria włączona – para przesuwa się lustrzanie':'Symetria wyłączona – przesuwasz pojedynczy głośnik'); };
 $('def').onclick=()=>{ ovr={}; say('Przywrócono zalecane pozycje','ok'); };
-$('done').onclick=markDone; $('up').onclick=()=>adjustHeight(0.05); $('down').onclick=()=>adjustHeight(-0.05);
+$('done').onclick=markDone; $('close').onclick=closeRoom; $('skip').onclick=()=>finishScan(); $('up').onclick=()=>adjustHeight(0.05); $('down').onclick=()=>adjustHeight(-0.05);
 $('ear').onclick=measureEar; $('share').onclick=()=>shareText(summaryText());
 $('shareLast').onclick=()=>{ const v=LS('gar-last'); shareText(v&&v.t); };
 $('copyLast').onclick=async()=>{ const v=LS('gar-last'); try{ await navigator.clipboard.writeText(v.t); $('status').textContent='Skopiowano do schowka ✓'; }catch(e){ $('status').textContent='Nie udało się skopiować'; } };
