@@ -35,10 +35,15 @@
   #info { color:#c9d3e6; font-size:13.5px; margin-top:5px; white-space:pre-line; }
   #btns { pointer-events:auto; position:absolute; left:0; right:0; bottom:0; display:flex; flex-wrap:wrap; gap:8px;
           padding:10px 12px calc(env(safe-area-inset-bottom) + 12px); }
-  #btns button { flex:1 1 28%; padding:13px 6px; border-radius:12px; border:0; background:rgba(20,27,39,.92); color:#fff; font-weight:600; }
+  #btns button { flex:1 1 22%; padding:13px 6px; border-radius:12px; border:0; background:rgba(20,27,39,.92); color:#fff; font-weight:600; }
   #btns button.big { background:rgba(79,140,255,.95); }
   #btns #exit { background:rgba(170,40,50,.9); }
   #c { display:none; }
+  #mini { position:absolute; right:10px; top:42%; width:130px; height:130px; border-radius:12px; background:rgba(8,11,18,.72); pointer-events:none; display:none; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  .row button, .btn2 { flex:1; padding:11px; border-radius:10px; border:1px solid var(--line); background:#0e1420; color:var(--txt); font-weight:600; }
+  #net { color:#5be38a; font-size:.85rem; min-height:1em; margin:4px 0 0; }
+  #lastBody { font-size:.9rem; color:#c9d3e6; line-height:1.45; white-space:pre-line; }
 </style>
 </head>
 <body>
@@ -58,10 +63,20 @@
     <p class="hint">W AR zmierzysz telewizor sam – przekątna uzupełni się automatycznie.</p>
     <label>Wysokość uszu na siedząco (cm) <input id="earCm" type="number" inputmode="numeric" value="110" min="60" max="160"></label>
     <label>Wysokość sufitu (cm) <input id="ceilCm" type="number" inputmode="numeric" value="250" min="200" max="500"></label>
+    <p class="hint">Uszy zmierzysz telefonem w AR (przycisk 📏), a sufit zmierzy się sam, gdy wycelujesz w niego celownikiem.</p>
+    <label>🔊 Podpowiedzi głosowe <input id="voice" type="checkbox" style="width:auto;transform:scale(1.4)"></label>
   </div>
 
   <button id="start" disabled>Start AR</button>
   <p id="status">Sprawdzam, czy urządzenie obsługuje AR…</p>
+  <p id="net"></p>
+  <button id="install" class="btn2" style="display:none;width:100%;margin-bottom:14px">📲 Zainstaluj aplikację na telefonie</button>
+
+  <div class="card" id="lastCard" style="display:none">
+    <h2>Ostatni pomiar</h2>
+    <div id="lastBody"></div>
+    <div class="row"><button id="shareLast">📤 Udostępnij</button><button id="copyLast">📋 Kopiuj</button></div>
+  </div>
 
   <div class="card">
     <h2>Zanim zaczniesz</h2>
@@ -78,6 +93,22 @@
     <h2>Plan z góry (podgląd bez AR)</h2>
     <label>Odległość kanapa – TV (m) <input id="dist2d" type="number" inputmode="decimal" value="2.5" step="0.1" min="1" max="8"></label>
     <canvas id="plan" width="800" height="800"></canvas>
+    <div class="row"><button id="png">🖼 Pobierz plan (PNG)</button></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Wersja 1.4 – co nowego</summary>
+      <ol>
+        <li>Wizualizacja mebli ze skanu Questa i obrys ścian/przeszkód na telefonie.</li>
+        <li>Ostrzeżenie, gdy głośnik wypada na kanapie, łóżku albo w drzwiach.</li>
+        <li>Lista „✓ Ustawiony”, minimapa, łuk kąta, kierunek skręcenia głośnika.</li>
+        <li>Strefa idealnej odległości od TV na podłodze.</li>
+        <li>Pomiar uszu telefonem i automatyczny pomiar sufitu.</li>
+        <li>Wibracje, dźwięki i podpowiedzi głosowe.</li>
+        <li>Zapis ustawień i ostatniego pomiaru, udostępnianie, eksport planu.</li>
+      </ol>
+    </details>
   </div>
 
   <div class="card">
@@ -86,6 +117,7 @@
       <p><b>Telefon (Android + Chrome):</b> tapnięcie ekranu = zaznacz punkt. Po pomiarze przyciski ◀ ▶ przełączają głośniki, a strzałka na podłodze prowadzi do miejsca.</p>
       <p><b>Meta Quest 3:</b> celujesz kontrolerem; spust = zaznacz / następny głośnik, grip = cofnij / poprzedni. Skonfiguruj przestrzeń (Ustawienia → Środowisko fizyczne → Konfiguracja przestrzeni) i oznacz kanapę oraz ekran – wtedy aplikacja wykryje je sama.</p>
       <p><b>Offline:</b> po pierwszym otwarciu działa bez internetu. Dodaj do ekranu głównego (menu Chrome → Dodaj do ekranu głównego).</p>
+      <p><b>W trakcie prowadzenia:</b> „✓ Ustawiony” odhacza głośnik i przechodzi do następnego, ▲▼ zmieniają wysokość o 5 cm, 📏 mierzy wysokość uszu (usiądź i trzymaj telefon przy uchu).</p>
       <p><b>Dokładność:</b> zwykle kilka centymetrów. Jeśli ściana nie pozwala postawić głośnika w zalecanym miejscu, zachowaj kąt i przysuń go bliżej – amplituner wyrówna różnicę odległości.</p>
     </details>
   </div>
@@ -93,10 +125,16 @@
 
 <div id="overlay">
   <div id="panel"><div id="msg"></div><div id="info"></div></div>
+  <canvas id="mini" width="260" height="260"></canvas>
   <div id="btns">
     <button id="manual">✋ Wskaż ręcznie</button>
     <button id="prev">◀ Poprzedni</button>
     <button id="next" class="big">Następny ▶</button>
+    <button id="done">✓ Ustawiony</button>
+    <button id="up">▲ 5 cm</button>
+    <button id="down">▼ 5 cm</button>
+    <button id="ear">📏 Uszy</button>
+    <button id="share">📤 Wyślij</button>
     <button id="undo">↶ Cofnij</button>
     <button id="sym">⇆ Symetria: wł.</button>
     <button id="def">↺ Domyślne</button>
@@ -270,13 +308,42 @@ function drawPlan(){
     ctx.fill();
     ctx.fillStyle='#e8ecf4'; ctx.font='700 24px system-ui';
     ctx.fillText(o.s.short,p[0],p[1]-24);
+    ctx.fillStyle='#93a0b8'; ctx.font='18px system-ui';
+    ctx.fillText(o.s.kind==='ceil'?'sufit':`${Math.round(o.ang)}° · ${o.dist.toFixed(1)} m`,p[0],p[1]+38);
   });
   const vr=viewingRange(S.tvIn);
   ctx.textAlign='left'; ctx.fillStyle='#93a0b8'; ctx.font='22px system-ui';
   ctx.fillText(`○ przy uszach  □ sufit · zalecana odl. od TV: ${vr.thx.toFixed(2)}–${vr.smpte.toFixed(2)} m`,16,W-16);
 }
-['cfg','tvIn','earCm','ceilCm','dist2d'].forEach(id=>$(id).addEventListener('input',drawPlan));
+/* ---------- Zapis ustawień ---------- */
+const LS=(k,v)=>{ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k,JSON.stringify(v)); }catch(e){ return null; } };
+function saveSettings(){ LS('gar-settings',{cfg:$('cfg').value,tvIn:$('tvIn').value,earCm:$('earCm').value,ceilCm:$('ceilCm').value,dist2d:$('dist2d').value,voice:!!$('voice').checked}); }
+(function loadSettings(){ const v=LS('gar-settings'); if(!v) return; for(const k of ['cfg','tvIn','earCm','ceilCm','dist2d']) if(v[k]!=null) $(k).value=v[k]; $('voice').checked=!!v.voice; })();
+['cfg','tvIn','earCm','ceilCm','dist2d'].forEach(id=>$(id).addEventListener('input',()=>{ drawPlan(); saveSettings(); }));
+$('voice').addEventListener('change',()=>{ saveSettings(); if($('voice').checked) speak('Podpowiedzi głosowe włączone'); });
 drawPlan();
+
+/* ---------- Dźwięk, głos, wibracje ---------- */
+let actx=null;
+function beep(f=880,ms=90){
+  try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain(); o.frequency.value=f; g.gain.value=0.07;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+ms/1000); }catch(e){}
+}
+function buzz(ms=40){
+  try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){}
+  if(session) for(const src of session.inputSources){
+    const h=src.gamepad&&src.gamepad.hapticActuators&&src.gamepad.hapticActuators[0];
+    if(h&&h.pulse) try{ h.pulse(0.6,ms); }catch(e){}
+  }
+}
+function speak(t){
+  if(!$('voice').checked||!window.speechSynthesis) return;
+  try{ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(t); u.lang='pl-PL'; u.rate=1.05; speechSynthesis.speak(u); }catch(e){}
+}
+function okFx(t){ buzz(40); beep(880); if(t) speak(t); }
+function errFx(){ buzz(120); beep(300,140); }
+const fmtM=v=>v<1?`${Math.round(v*100)} cm`:`${v.toFixed(2)} m`;
 
 /* ---------- WebGL ---------- */
 let gl, progC, progT, quadBuf, dynBuf;
@@ -388,7 +455,7 @@ let planes=[], planesSupported=false, toast='', toastUntil=0, S=null, lastLayout
 // przenoszenie znaczników
 let ovr={}, sym=true, drag=null, hover=null;
 
-function say(t){ toast=t; toastUntil=performance.now()+2800; }
+function say(t,fx){ toast=t; toastUntil=performance.now()+2800; if(fx==='ok') okFx(); else if(fx==='err') errFx(); }
 const act=()=>hasDom?'tapnij ekran':'naciśnij spust';
 const cm=v=>Math.round(v*100);
 
@@ -465,6 +532,7 @@ function drop(){
   dragUpdate();
   if(drag.type==='seat' && hlen(sub(seatPt,tvPt))<0.8){ say('Za blisko telewizora'); return; }
   if(drag.type==='seat') makeRays();
+  okFx();
   say('Przeniesiono: '+grabName(drag)+(drag.type==='spk'&&sym&&PAIR[drag.id]?' (para przesunięta symetrycznie)':' – układ przeliczony'));
   drag=null;
 }
@@ -485,30 +553,104 @@ function place(){
   if(step===0 && autoTV && !manualTV){
     tvPt=autoTV.center; tvWidth=autoTV.width; tvFromAuto=true;
     const diag=Math.round(widthToDiag(tvWidth)); if(diag>=20&&diag<=150){ S.tvIn=diag; $('tvIn').value=diag; }
-    step=2; return;
+    step=2; okFx('Telewizor zatwierdzony. Teraz miejsce odsłuchu.'); return;
   }
   if(step===2 && autoSeat && !manualSeat){ seatPt=autoSeat; startGuide(); return; }
-  if(!reticlePos){ say('Nie widzę powierzchni – powoli poruszaj urządzeniem nad podłogą'); return; }
+  if(!reticlePos){ say('Nie widzę powierzchni – powoli poruszaj urządzeniem nad podłogą','err'); return; }
   const p=reticlePos, n=col(reticleM,1), vertical=Math.abs(n[1])<0.6;
-  if(step===0){ tvL=p; tvFromAuto=false; step=1; }
+  if(step===0){ tvL=p; tvFromAuto=false; step=1; okFx('Teraz prawa krawędź ekranu'); }
   else if(step===1){
     const w=hlen(sub(p,tvL));
-    if(w<0.3){ say('To za blisko lewej krawędzi – wskaż prawą krawędź ekranu'); return; }
-    if(w>3.5){ say('Ponad 3,5 m szerokości? Spróbuj jeszcze raz'); return; }
-    tvR=p; setTvFromEdges(); step=2;
+    if(w<0.3){ say('To za blisko lewej krawędzi – wskaż prawą krawędź ekranu','err'); return; }
+    if(w>3.5){ say('Ponad 3,5 m szerokości? Spróbuj jeszcze raz','err'); return; }
+    tvR=p; setTvFromEdges(); step=2; okFx(`Telewizor ${S.tvIn} cali. Teraz wskaż miejsce, gdzie siedzisz.`);
   }
   else if(step===2){
-    if(vertical){ say('To ściana – wskaż podłogę pod miejscem siedzenia'); return; }
-    if(hlen(sub(p,tvPt))<0.8){ say('Za blisko telewizora – wskaż miejsce siedzenia'); return; }
+    if(vertical){ say('To ściana – wskaż podłogę pod miejscem siedzenia','err'); return; }
+    if(hlen(sub(p,tvPt))<0.8){ say('Za blisko telewizora – wskaż miejsce siedzenia','err'); return; }
     seatPt=p; startGuide();
   }
 }
-function startGuide(){ step=3; guide=-1; scanning=true; makeRays(); }
+function startGuide(){ step=3; guide=-1; scanning=true; doneSet.clear(); makeRays(); okFx('Teraz zeskanuj ściany. Obróć się powoli dookoła.'); }
 function nSpk(){ return (CONFIGS[S.cfg]||B51).length; }
 function nextSpk(){
   if(scanning){ finishScan(); return; }
-  guide = guide+1>=nSpk() ? -1 : guide+1;
+  guide = guide+1>=nSpk() ? -1 : guide+1; announce();
 }
+/* ---------- Lista „ustawione” i ogłaszanie ---------- */
+const doneSet=new Set();
+let arrived=-2;
+function announce(){
+  arrived=-2;
+  if(guide===-1){ speak(doneSet.size>=nSpk()?'Wszystkie głośniki ustawione. Wpisz odległości w amplitunerze.':'Podsumowanie.'); saveLast(); return; }
+  const o=lastLayout&&lastLayout.out[guide]; if(!o) return;
+  speak(`${o.s.name}. ${o.s.kind==='ceil'?'Na suficie.':'Wysokość '+cm(o.pos[1]-lastLayout.floorY)+' centymetrów.'}`);
+}
+function markDone(){
+  if(guide<0||!lastLayout) return;
+  const id=lastLayout.out[guide].id;
+  if(doneSet.has(id)){ doneSet.delete(id); say('Odznaczono'); return; }
+  doneSet.add(id); okFx();
+  // przejdź do następnego nieustawionego
+  const ids=lastLayout.out.map(o=>o.id);
+  for(let k=1;k<=ids.length;k++){ const j=(guide+k)%ids.length; if(!doneSet.has(ids[j])){ guide=j; announce(); return; } }
+  guide=-1; say('Wszystkie głośniki ustawione! 🎉','ok'); announce();
+}
+function adjustHeight(dh){
+  if(guide<0||!lastLayout) return;
+  const L=lastLayout, o=L.out[guide]; if(o.s.kind==='ceil') return;
+  const setFrom=(oo,h)=>{
+    const rel=[oo.pos[0]-seatPt[0],0,oo.pos[2]-seatPt[2]];
+    ovr[oo.id]={az:Math.atan2(dot(rel,L.right),dot(rel,L.f)),r:Math.max(0.2,hlen(rel)),h};
+  };
+  const h=Math.min(2.4,Math.max(0.05,o.pos[1]-L.floorY+dh));
+  setFrom(o,h);
+  const pid=PAIR[o.id], po=sym&&pid&&L.out.find(x=>x.id===pid);
+  if(po) setFrom(po,h);
+  buzz(20); say(`Wysokość: ${cm(h)} cm`+(po?` (także ${po.s.short})`:''));
+}
+function measureEar(){
+  const fy=seatPt?seatPt[1]:floorY(), e=cam[1]-fy;
+  if(e<0.6||e>1.7){ say('Usiądź i trzymaj telefon przy uchu, potem naciśnij 📏','err'); return; }
+  S.ear=e; $('earCm').value=cm(e); saveSettings(); say(`Wysokość uszu: ${cm(e)} cm`,'ok');
+}
+let ceilDone=false;
+function checkCeiling(){
+  if(!reticleM||!reticlePos) return;
+  const n=col(reticleM,1), fy=seatPt?seatPt[1]:floorY(), h=reticlePos[1]-fy;
+  if(n[1]<-0.7 && h>1.9 && h<5 && stable && (!ceilDone||Math.abs(h-S.ceil)>0.05)){
+    S.ceil=h; $('ceilCm').value=cm(h); saveSettings();
+    if(!ceilDone) say(`Zmierzono sufit: ${cm(h)} cm`,'ok'); ceilDone=true;
+  }
+}
+function ceilingFromPlanes(){
+  const fy=seatPt?seatPt[1]:floorY();
+  for(const p of planes){
+    if(p.vertical) continue;
+    const n=col(p.m,1), y=col(p.m,3)[1]-fy;
+    if((/ceiling/i.test(p.label)||n[1]<-0.5) && y>1.9 && y<5){ if(!ceilDone){ S.ceil=y; $('ceilCm').value=cm(y); ceilDone=true; saveSettings(); } return; }
+  }
+}
+/* ---------- Ostatni pomiar: zapis i udostępnianie ---------- */
+function summaryText(){
+  if(!lastLayout) return '';
+  const L=lastLayout;
+  return `Ustawiacz Głośników AR – ${new Date().toLocaleDateString('pl-PL')}\n`+
+    `Zestaw ${S.cfg}, TV ${S.tvIn}", odległość kanapa–TV ${L.d.toFixed(2)} m\n`+
+    `Uszy ${cm(S.ear)} cm, sufit ${cm(S.ceil)} cm\n`+
+    `Odległości do amplitunera:\n`+L.out.map(o=>`• ${o.s.short} (${o.s.name}): ${o.dist.toFixed(2)} m, `+(o.s.kind==='ceil'?'sufit':`wys. ${cm(o.pos[1]-L.floorY)} cm, kąt ${Math.round(o.ang)}°`)).join('\n');
+}
+function saveLast(){ const t=summaryText(); if(t) LS('gar-last',{t,d:lastLayout.d}); showLast(); }
+function showLast(){
+  const v=LS('gar-last'); if(!v||!v.t) return;
+  $('lastCard').style.display=''; $('lastBody').textContent=v.t;
+}
+async function shareText(t){
+  if(!t) return;
+  try{ if(navigator.share){ await navigator.share({title:'Ustawienie głośników',text:t}); return; } }catch(e){ if(e&&e.name==='AbortError') return; }
+  try{ await navigator.clipboard.writeText(t); say('Skopiowano do schowka','ok'); alertish('Skopiowano do schowka'); }catch(e){ alertish('Nie udało się skopiować'); }
+}
+function alertish(t){ if(!session) $('status').textContent=t; }
 
 /* ---------- Skanowanie ścian promieniami ---------- */
 let scanning=false, rayGen=0;
@@ -565,9 +707,10 @@ function missingDirs(){
 function finishScan(){
   scanning=false; guide=-1;
   const miss=missingDirs();
-  say(miss.length ? `Ściany nie wykryto za: ${miss.map(o=>o.s.short).join(', ')} – sprawdź te miejsca wzrokiem` : 'Ściany wykryte – żaden głośnik nie stoi za ścianą ✓');
+  say(miss.length ? `Ściany nie wykryto za: ${miss.map(o=>o.s.short).join(', ')} – sprawdź te miejsca wzrokiem` : 'Ściany wykryte – żaden głośnik nie stoi za ścianą ✓', miss.length?'err':'ok');
+  saveLast();
 }
-function prevSpk(){ guide = guide-1<-1 ? nSpk()-1 : guide-1; }
+function prevSpk(){ guide = guide-1<-1 ? nSpk()-1 : guide-1; announce(); }
 function undo(){
   if(drag){ cancelDrag(); return; }
   if(step===3){ if(guide!==-1&&!scanning){ prevSpk(); return; } seatPt=null; step=2; manualSeat=false; scanning=false; clearRays(); }
@@ -575,7 +718,7 @@ function undo(){
   else if(step===1){ tvL=null; step=0; }
 }
 function goManual(){ if(step===0) manualTV=true; if(step===2) manualSeat=true; }
-function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; ovr={}; drag=null; scanning=false; clearRays(); }
+function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; ovr={}; drag=null; scanning=false; clearRays(); doneSet.clear(); ceilDone=false; }
 
 /* ---------- Wykrywanie TV i kanapy ze skanu pokoju (Quest) ---------- */
 const RX_TV=/screen|tv|television|monitor|ekran/i, RX_SEAT=/couch|sofa|seat|kanapa/i;
@@ -606,6 +749,86 @@ function detectObjects(frame){
   }
 }
 
+/* ---------- Meble i przeszkody ze skanu pokoju (Quest) ---------- */
+const OBJ_NAMES=[['couch','Kanapa'],['sofa','Kanapa'],['table','Stół'],['desk','Biurko'],['bed','Łóżko'],['storage','Szafka'],
+  ['shelf','Regał'],['screen','Telewizor'],['tv','Telewizor'],['monitor','Telewizor'],['lamp','Lampa'],['plant','Roślina'],
+  ['art','Obraz'],['door','Drzwi'],['window','Okno'],['chair','Krzesło'],['other','Przeszkoda']];
+const RX_SKIP=/^(floor|ceiling|wall|wall_face|inner wall|invisible wall|global mesh|global_mesh)?$/i;
+const BLOCKING=new Set(['Kanapa','Łóżko','Drzwi','Krzesło']);   // na tym nie postawisz głośnika
+const OBJ_COL={Kanapa:[1,0.75,0.3],Łóżko:[1,0.75,0.3],Drzwi:[1,0.4,0.4],Okno:[0.5,0.8,1],Obraz:[0.5,0.8,1],Telewizor:[0.9,0.9,0.9]};
+function objName(lbl){ const l=lbl.toLowerCase(); for(const [k,v] of OBJ_NAMES) if(l.includes(k)) return v; return 'Przeszkoda'; }
+let objects=[];
+const meshBox=new WeakMap();
+function collectObjects(frame){
+  objects=[];
+  const fy=floorY();
+  const addBox=(lbl,pts,horizontal)=>{
+    if(!pts.length||RX_SKIP.test(lbl.trim())) return;
+    let mn=[Infinity,Infinity,Infinity], mx=[-Infinity,-Infinity,-Infinity];
+    for(const q of pts) for(let k=0;k<3;k++){ mn[k]=Math.min(mn[k],q[k]); mx[k]=Math.max(mx[k],q[k]); }
+    const name=objName(lbl);
+    if(horizontal && name!=='Okno') mn[1]=Math.min(mn[1],fy);   // blat stołu → bryła od podłogi
+    if(mx[0]-mn[0]<0.02&&mx[2]-mn[2]<0.02) return;
+    objects.push({name,mn,mx,col:OBJ_COL[name]||[1,0.6,0.25],blocking:BLOCKING.has(name)});
+  };
+  for(const p of planes) if(p.label) addBox(p.label,p.world,!p.vertical);
+  if(frame.detectedMeshes){
+    frame.detectedMeshes.forEach(mesh=>{
+      const lbl=mesh.semanticLabel||''; if(RX_SKIP.test(lbl.trim())) return;
+      const mp=frame.getPose(mesh.meshSpace,refSpace); if(!mp) return;
+      let c=meshBox.get(mesh);
+      if(!c||c.t!==mesh.lastChangedTime){
+        const v=mesh.vertices; let mn=[Infinity,Infinity,Infinity], mx=[-Infinity,-Infinity,-Infinity];
+        for(let i=0;i<v.length;i+=3) for(let k=0;k<3;k++){ mn[k]=Math.min(mn[k],v[i+k]); mx[k]=Math.max(mx[k],v[i+k]); }
+        c={t:mesh.lastChangedTime,mn,mx}; meshBox.set(mesh,c);
+      }
+      if(!isFinite(c.mn[0])) return;
+      const m=mp.transform.matrix, corners=[];
+      for(const x of [c.mn[0],c.mx[0]]) for(const y of [c.mn[1],c.mx[1]]) for(const z of [c.mn[2],c.mx[2]]) corners.push(xform(m,[x,y,z]));
+      addBox(lbl,corners,false);
+    });
+  }
+}
+function drawObjects(alpha){
+  for(const o of objects){
+    const a=o.mn, b=o.mx, c=[...o.col,0.85*alpha];
+    const P=(x,y,z)=>[x?b[0]:a[0], y?b[1]:a[1], z?b[2]:a[2]];
+    const E=[[0,0,0,1,0,0],[0,0,1,1,0,1],[0,1,0,1,1,0],[0,1,1,1,1,1],[0,0,0,0,1,0],[1,0,0,1,1,0],
+             [0,0,1,0,1,1],[1,0,1,1,1,1],[0,0,0,0,0,1],[1,0,0,1,0,1],[0,1,0,0,1,1],[1,1,0,1,1,1]];
+    for(const e of E) seg(P(e[0],e[1],e[2]),P(e[3],e[4],e[5]),0.012,c);
+    // półprzezroczysty „cień” na podłodze
+    const fy=a[1]+0.006;
+    floorSeg([a[0],fy,(a[2]+b[2])/2],[b[0],fy,(a[2]+b[2])/2],b[2]-a[2],[...o.col,0.12*alpha]);
+    label([o.name],[(a[0]+b[0])/2,b[1],(a[2]+b[2])/2],o.col,alpha);
+  }
+}
+function obstacleAt(p){
+  for(const o of objects){
+    if(p[0]>o.mn[0]-0.05&&p[0]<o.mx[0]+0.05&&p[2]>o.mn[2]-0.05&&p[2]<o.mx[2]+0.05) return o;
+  }
+  return null;
+}
+// telefon: obrys ścian ze skanu; bliższe fragmenty = przeszkoda (szafa, regał)
+function drawRoomOutline(fy,alpha){
+  const f=rays.filter(r=>isFinite(r.dist)).map(r=>r.dist).sort((a,b)=>a-b);
+  if(!f.length) return;
+  const med=f[Math.floor(f.length/2)];
+  let obstLabelDone=false;
+  for(let i=0;i<rays.length;i++){
+    const r=rays[i], n=rays[(i+1)%rays.length];
+    if(!isFinite(r.dist)) continue;
+    const near = r.dist<0.7*med;
+    const c = near?[1,0.6,0.2,0.9*alpha]:[0.3,0.95,0.5,0.7*alpha];
+    const h=[r.hit[0],fy+0.01,r.hit[2]];
+    seg(h,add(h,[0,near?0.9:1.3,0]),0.012,[c[0],c[1],c[2],c[3]*0.5]);
+    if(isFinite(n.dist) && Math.abs(r.dist-n.dist)<0.7){
+      floorSeg(h,[n.hit[0],fy+0.01,n.hit[2]],0.035,c);
+      seg(add(h,[0,near?0.9:1.3,0]),[n.hit[0],fy+(n.dist<0.7*med?0.9:1.3),n.hit[2]],0.01,[c[0],c[1],c[2],c[3]*0.5]);
+    }
+    if(near && !obstLabelDone && alpha>0.5){ label(['Przeszkoda'],add(h,[0,0.9,0]),[1,0.6,0.2]); obstLabelDone=true; }
+  }
+}
+
 /* ---------- Teksty ---------- */
 function stepMsg(){
   if(performance.now()<toastUntil) return '👉 '+toast;
@@ -627,11 +850,12 @@ function stepMsg(){
   }
   if(drag) return `✋ Przenosisz: ${grabName(drag)} – wyceluj w nowe miejsce i ${act()}, żeby upuścić.`;
   if(hover) return `✋ ${hasDom?'Tapnij':'Spust'}, żeby przenieść: ${grabName(hover)}`;
-  if(guide===-1) return '✅ Gotowe! Naciśnij „Następny”, a poprowadzę Cię do każdego głośnika. Znaczniki możesz przenosić.';
-  const o=lastLayout.out[guide], n=lastLayout.out.length;
+  const nd=doneSet.size, n=lastLayout.out.length;
+  if(guide===-1) return nd>=n ? `🎉 Wszystkie ${n} głośniki ustawione! Wpisz odległości w amplitunerze.` : `✅ Gotowe! Ustawione: ${nd}/${n}. Naciśnij „Następny”, a poprowadzę Cię do każdego głośnika.`;
+  const o=lastLayout.out[guide];
   const me=[cam[0],0,cam[2]], tgt=[o.pos[0],0,o.pos[2]], dist=hlen(sub(tgt,me));
-  const where = dist<0.3 ? '✓ Jesteś na miejscu – postaw tu głośnik' : `idź za strzałką: ${dist.toFixed(1)} m`;
-  return `${guide+1}/${n} · ${o.s.short} – ${o.s.name}: ${where}`;
+  const where = doneSet.has(o.id) ? '✓ ustawiony' : dist<0.3 ? '✓ Jesteś na miejscu – postaw tu głośnik' : `idź za strzałką: ${fmtM(dist)}`;
+  return `${guide+1}/${n} · ${o.s.short} – ${o.s.name}: ${where}  (ustawione ${nd}/${n})`;
 }
 function infoText(){
   const lines=[];
@@ -662,6 +886,10 @@ function infoText(){
     const vr=viewingRange(S.tvIn);
     lines.push(`Zestaw ${S.cfg} · TV ${S.tvIn}" · odległość od TV ${L.d.toFixed(2)} m (zalecana ${vr.thx.toFixed(1)}–${vr.smpte.toFixed(1)} m)`);
     const off=axisOffset(); if(Math.abs(off)>0.25) lines.push(`⚠ Siedzisz ${cm(Math.abs(off))} cm na ${off>0?'prawo':'lewo'} od środka TV – najlepiej siedzieć na jego osi.`);
+    const back=rayWall(scl(L.f,-1)); if(back<0.45) lines.push(`⚠ Kanapa stoi ${cm(back)} cm od ściany za Tobą – bas może dudnić. Jeśli możesz, odsuń ją na 30+ cm.`);
+    const wl=rayWall(scl(L.right,-1)), wr=rayWall(L.right);
+    if(isFinite(wl)&&isFinite(wr)&&Math.abs(wl-wr)>0.6) lines.push(`ℹ Pokój niesymetryczny: lewa ściana ${fmtM(wl)}, prawa ${fmtM(wr)} – autokalibracja częściowo to wyrówna.`);
+    const blk=L.out.filter(o=>o.blocked); if(blk.length) lines.push('⚠ Na przeszkodzie: '+blk.map(o=>`${o.s.short} (${o.onObj})`).join(', ')+' – przenieś znacznik.');
     if(L.out.some(o=>o.clamped)) lines.push('Głośniki przy ścianach: '+L.out.filter(o=>o.clamped).map(o=>o.s.short).join(', ')+' – przysunięte przed ścianę, kąt zachowany.');
     const miss=missingDirs(); if(miss.length) lines.push('⚠ Nie wykryto ściany za: '+miss.map(o=>o.s.short).join(', ')+' – sprawdź, czy nie wypadają za ścianą.');
     const bad=L.out.filter(o=>o.badAng);
@@ -673,8 +901,10 @@ function infoText(){
     if(!hasDom) lines.push('Spust na znaczniku = przenieś · spust obok = następny · Grip = cofnij');
   } else {
     const o=L.out[guide], h=cm(o.pos[1]-L.floorY);
-    lines.push(o.s.kind==='ceil' ? `Na suficie · ${o.s.tip} · ${o.dist.toFixed(2)} m od uszu` :
-               `Wysokość: ${h} cm · kąt ${o.s.tip} · ${o.dist.toFixed(2)} m od uszu`);
+    lines.push(o.s.kind==='ceil' ? `Na suficie · ${o.s.tip} · ${fmtM(o.dist)} od uszu` :
+               `Wysokość: ${h} cm · kąt ${Math.round(o.ang)}° (zalecane ${o.s.tip}) · ${fmtM(o.dist)} od uszu`);
+    if(o.blocked) lines.push(`⚠ Znacznik wypada na: ${o.onObj} – przenieś go obok.`);
+    if(o.s.kind!=='ceil'&&o.s.kind!=='floor') lines.push('Biała strzałka przy znaczniku = kierunek, w który skręcić głośnik.');
     if(o.clamped) lines.push('Ściana jest bliżej niż zalecana odległość – postaw przy ścianie, w tym samym kierunku.');
     if(o.moved) lines.push(`Przesunięty ręcznie · kąt teraz ${Math.round(o.ang)}°`+(o.badAng?` ⚠ zalecane ${o.s.tip}`:' ✓'));
     lines.push(o.s.how);
@@ -704,6 +934,7 @@ function onSqueeze(){
   if((step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat)) goManual(); else undo();
 }
 
+let wakeLock=null;
 async function startAR(){
   S=readSettings();
   try{
@@ -716,6 +947,7 @@ async function startAR(){
   }catch(e){ $('status').textContent='Nie udało się uruchomić AR: '+e.message; return; }
   hasDom=!!session.domOverlayState;
   $('overlay').classList.add('on');
+  try{ if(navigator.wakeLock) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){ wakeLock=null; }
   $('landing').style.display='none';
   reset(); ctrlHit.clear(); updateReticle(null); planes=[];
   await gl.makeXRCompatible();
@@ -729,7 +961,11 @@ async function startAR(){
   session.addEventListener('inputsourceschange',onSources);
   for(const src of session.inputSources) addCtrl(src);
   session.addEventListener('end',()=>{
+    if(lastLayout||LS('gar-last')){ if(lastLayout) saveLast(); const v=LS('gar-last'); if(v&&v.d){ $('dist2d').value=v.d.toFixed(1); } }
+    $('tvIn').value=S.tvIn; drawPlan(); saveSettings();
+    try{ if(wakeLock) wakeLock.release(); }catch(e){} wakeLock=null;
     clearRays(); session=null; viewerHit=null; ctrlHit.clear();
+    $('mini').style.display='none';
     $('overlay').classList.remove('on'); $('landing').style.display='';
   });
   session.requestAnimationFrame(onFrame);
@@ -748,9 +984,13 @@ function pickHit(frame){
 function onFrame(t,frame){
   const s=frame.session; s.requestAnimationFrame(onFrame);
   const pose=frame.getViewerPose(refSpace);
-  if(!pose) return;
+  if(!pose){
+    if(hasDom){ const m='⚠ Utracono śledzenie – rozejrzyj się wolniej, zapal światło i celuj w miejsca z fakturą.'; if($('msg').textContent!==m) $('msg').textContent=m; }
+    return;
+  }
   const tp=pose.transform.position; cam=[tp.x,tp.y,tp.z];
   const src=pickHit(frame);
+  checkCeiling();
 
   planes=[];
   if(frame.detectedPlanes){
@@ -765,10 +1005,13 @@ function onFrame(t,frame){
     });
   }
   if(step===0||step===2) detectObjects(frame);
+  collectObjects(frame);
+  ceilingFromPlanes();
   if(rays.length){ updateRays(frame); recordReticleWall(); }
 
   tris=[]; quads=[];
   const t1=t/1000;
+  drawObjects(step===3&&!scanning?0.45:1);
   for(const p of planes){
     const c=p.vertical?[1,1,1,0.25]:[0.55,0.75,1,0.2];
     for(let i=0;i<p.world.length;i++) seg(p.world[i],p.world[(i+1)%p.world.length],0.012,c);
@@ -801,6 +1044,10 @@ function onFrame(t,frame){
   if(tvL){ billboard(discTex([1,1,1]),tvL,0.05*camScale(tvL)); }
   if(tvR){ billboard(discTex([1,1,1]),tvR,0.05*camScale(tvR)); seg(tvL,tvR,0.01,[1,1,1,0.8]); }
   if(tvPt){ const hot=(hover&&hover.type==='tv')||(drag&&drag.type==='tv'); billboard(discTex(hot?[1,0.85,0.2]:[0.9,0.9,0.9]),tvPt,(hot?0.11:0.07)*camScale(tvPt)); label([`TV ${S.tvIn}"`],tvPt,[0.9,0.9,0.9]); }
+  if(step===2&&tvL&&tvR&&!seatPt){
+    let nrm=norm(cross(UP,[tvR[0]-tvL[0],0,tvR[2]-tvL[2]])); if(dot(nrm,sub(cam,tvPt))<0) nrm=scl(nrm,-1);
+    drawViewZone(tvPt,nrm,floorY(),1);
+  }
   if(seatPt){
     const hotS=(hover&&hover.type==='seat')||(drag&&drag.type==='seat');
     flat(ringTex(),add(seatPt,[0,0.004,0]),0.5,hotS?[1,0.85,0.2,1]:[1,1,1,0.9]);
@@ -820,11 +1067,10 @@ function onFrame(t,frame){
     const so=[seatPt[0],L.floorY+0.005,seatPt[2]], ra=scanning?1:0.35;
     for(const r of rays){
       const a0=add(so,scl(r.dir,0.45)), a1=add(so,scl(r.dir,0.7));
-      if(isFinite(r.dist)){
-        floorSeg(a0,a1,0.03,[0.3,0.95,0.5,0.8*ra]);
-        if(scanning){ const hb=[r.hit[0],L.floorY+0.05,r.hit[2]]; seg(hb,add(hb,[0,1.6,0]),0.02,[0.3,0.95,0.5,0.45]); }
-      } else floorSeg(a0,a1,0.03,[1,0.3,0.3,0.8*ra]);
+      floorSeg(a0,a1,0.03,isFinite(r.dist)?[0.3,0.95,0.5,0.8*ra]:[1,0.3,0.3,0.8*ra]);
     }
+    drawRoomOutline(L.floorY,scanning?1:0.45);
+    for(const o of L.out){ const ob=o.s.kind!=='ceil'?obstacleAt(o.pos):null; o.onObj=ob?ob.name:null; o.blocked=!!(ob&&ob.blocking); }
     if(guide===-1) label(['Miejsce odsłuchu',`uszy ${cm(S.ear)} cm`],L.O,[1,1,1]);
     const partner = drag&&drag.type==='spk'&&sym ? PAIR[drag.id] : null;
     L.out.forEach((o,i)=>{
@@ -844,11 +1090,36 @@ function onFrame(t,frame){
         const hh=cm(p[1]-L.floorY);
         const l2 = o.s.kind==='ceil' ? `na suficie · ${o.dist.toFixed(2)} m` : `wys. ${hh} cm · ${o.dist.toFixed(2)} m`;
         const lines=[`${o.s.short} · ${o.s.name}`, l2];
+        if(o.blocked) lines.push(`⚠ wypada na: ${o.onObj} – przesuń`);
+        else if(o.onObj) lines.push(`na: ${o.onObj}`);
         if(o.badAng) lines.push(`⚠ kąt ${Math.round(o.ang)}° (zalecane ${o.s.tip})`);
         else if(o.clamped) lines.push('przy ścianie');
         label(lines, p, c);
       }
     });
+    // strefa idealnej odległości od TV, łuk kąta, kierunek skręcenia, odhaczone
+    drawViewZone(tvPt,scl(L.f,-1),L.floorY,0.5);
+    L.out.forEach((o,i)=>{ if(doneSet.has(o.id)) label(['✓'],add(o.pos,[0,0.12*camScale(o.pos),0]),[0.3,0.95,0.5]); });
+    if(guide>=0 && !scanning){
+      const o=L.out[guide];
+      if(o.s.kind!=='ceil'){
+        const a1=Math.atan2(dot(sub(o.pos,L.O),L.right),dot(sub(o.pos,L.O),L.f)), R=0.8, so=[seatPt[0],L.floorY+0.007,seatPt[2]];
+        const pt=a=>add(so,scl(add(scl(L.f,Math.cos(a)),scl(L.right,Math.sin(a))),R));
+        const N=Math.max(4,Math.ceil(Math.abs(a1)/0.12));
+        for(let k=0;k<N;k++) floorSeg(pt(a1*k/N),pt(a1*(k+1)/N),0.02,[1,1,1,0.85]);
+        floorSeg(so,pt(0),0.01,[1,1,1,0.5]);
+        label([`${Math.round(Math.abs(a1)*180/Math.PI)}°`],pt(a1/2),[1,1,1]);
+        if(o.s.kind!=='floor'){ // kierunek skręcenia głośnika (toe-in) – w stronę uszu
+          const fp=[o.pos[0],L.floorY+0.008,o.pos[2]], dir=norm([seatPt[0]-fp[0],0,seatPt[2]-fp[2]]), side=cross(dir,UP);
+          const tip=add(fp,scl(dir,0.45)), back=sub(tip,scl(dir,0.13));
+          floorSeg(add(fp,scl(dir,0.18)),tip,0.025,[1,1,1,0.95]);
+          floorSeg(add(back,scl(side,0.08)),tip,0.022,[1,1,1,0.95]); floorSeg(sub(back,scl(side,0.08)),tip,0.022,[1,1,1,0.95]);
+        }
+      }
+      // „jesteś na miejscu”
+      const dd=hlen(sub([cam[0],0,cam[2]],[o.pos[0],0,o.pos[2]]));
+      if(dd<0.3 && arrived!==guide && !doneSet.has(o.id)){ arrived=guide; okFx('Jesteś na miejscu. Postaw tu głośnik.'); }
+    }
     // strzałka prowadząca do wybranego głośnika
     if(guide>=0 && !drag && !scanning){
       const o=L.out[guide], me=[cam[0],L.floorY+0.006,cam[2]], tgt=[o.pos[0],L.floorY+0.006,o.pos[2]];
@@ -867,6 +1138,7 @@ function onFrame(t,frame){
     }
   }
 
+  if(hasDom) drawMini();
   const msg=stepMsg(), info=infoText();
   if(hasDom){
     if($('msg').textContent!==msg) $('msg').textContent=msg;
@@ -880,6 +1152,44 @@ function onFrame(t,frame){
   }
   render(pose,s);
 }
+// pas na podłodze: zalecana odległość oglądania (THX 40° – SMPTE 30°)
+function drawViewZone(tv,toward,fy,alpha){
+  if(!tv) return;
+  const vr=viewingRange(S.tvIn), side=cross(toward,UP), c=[0.45,0.75,1,0.35*alpha];
+  const pt=(r,a)=>[tv[0]+(toward[0]*Math.cos(a)+side[0]*Math.sin(a))*r, fy+0.005, tv[2]+(toward[2]*Math.cos(a)+side[2]*Math.sin(a))*r];
+  const A=0.6, N=12;
+  for(let k=0;k<N;k++){
+    const a0=-A+2*A*k/N, a1=-A+2*A*(k+1)/N, rm=(vr.thx+vr.smpte)/2;
+    floorSeg(pt(rm,a0),pt(rm,a1),vr.smpte-vr.thx,c);
+  }
+  label(['Strefa idealnej odległości',`${vr.thx.toFixed(1)}–${vr.smpte.toFixed(1)} m od TV`],pt((vr.thx+vr.smpte)/2,0),[0.45,0.75,1],alpha);
+}
+let miniTick=0;
+function drawMini(){
+  const cv=$('mini');
+  if(step!==3||!lastLayout){ if(cv.style.display!=='none') cv.style.display='none'; return; }
+  if(cv.style.display==='none') cv.style.display='block';
+  if((miniTick++)%3) return;
+  const L=lastLayout, ctx=cv.getContext('2d'), W=cv.width, c=W/2;
+  const loc=p=>{ const v=[p[0]-seatPt[0],0,p[2]-seatPt[2]]; return [dot(v,L.right), -dot(v,L.f)]; };
+  let maxR=L.d; L.out.forEach(o=>{ const q=loc(o.pos); maxR=Math.max(maxR,Math.hypot(q[0],q[1])); });
+  const me=loc(cam); maxR=Math.max(maxR,Math.min(6,Math.hypot(me[0],me[1])));
+  const sc=(c-18)/(maxR+0.2), P=q=>[c+q[0]*sc,c+q[1]*sc];
+  ctx.clearRect(0,0,W,W);
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(c,c,L.d*sc,0,Math.PI*2); ctx.stroke();
+  // ściany ze skanu
+  ctx.fillStyle='rgba(80,240,130,0.7)';
+  for(const r of rays) if(isFinite(r.dist)){ const q=P(loc(r.hit)); ctx.fillRect(q[0]-3,q[1]-3,6,6); }
+  const t=P(loc(tvPt)); ctx.fillStyle='#e8ecf4'; ctx.fillRect(t[0]-22,t[1]-4,44,8);
+  ctx.beginPath(); ctx.arc(c,c,9,0,Math.PI*2); ctx.fill();
+  L.out.forEach((o,i)=>{
+    const q=P(loc(o.pos)); ctx.fillStyle=rgb(o.s.col, guide===-1||guide===i?1:0.35);
+    ctx.beginPath(); ctx.arc(q[0],q[1],guide===i?11:8,0,Math.PI*2); ctx.fill();
+    if(doneSet.has(o.id)){ ctx.strokeStyle='#5be38a'; ctx.lineWidth=4; ctx.stroke(); }
+  });
+  const m=P(me); ctx.fillStyle='#ffd34d'; ctx.beginPath(); ctx.arc(m[0],m[1],8,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ffd34d'; ctx.font='bold 22px system-ui'; ctx.fillText('Ty',m[0]+10,m[1]-8);
+}
 function wrap(t,n){
   const out=[]; let line='';
   for(const w of t.split(' ')){ if((line+' '+w).trim().length>n&&line){out.push(line);line=w;} else line=(line+' '+w).trim(); }
@@ -889,7 +1199,8 @@ let btnState='';
 function updateButtons(){
   const auto=(step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat);
   const g=step===3&&!scanning;
-  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0].join();
+  const sel=g&&guide>=0&&lastLayout?lastLayout.out[guide]:null;
+  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0, guide, sel&&doneSet.has(sel.id)].join();
   if(st===btnState) return; btnState=st;
   const show=(id,v)=>$(id).style.display=v?'':'none';
   show('manual',auto);
@@ -900,6 +1211,11 @@ function updateButtons(){
   $('undo').textContent=drag?'✕ Anuluj':'↶ Cofnij';
   show('sym',g&&!drag); $('sym').textContent='⇆ Symetria: '+(sym?'wł.':'wył.');
   show('def',g&&!drag&&Object.keys(ovr).length>0);
+  show('done',!!sel&&!drag); $('done').textContent=sel&&doneSet.has(sel.id)?'↺ Odznacz':'✓ Ustawiony';
+  show('up',!!sel&&!drag&&sel.s.kind!=='ceil'); show('down',!!sel&&!drag&&sel.s.kind!=='ceil');
+  show('ear',(step===2||(g&&guide===-1))&&!drag);
+  show('share',g&&guide===-1&&!drag);
+  show('reset',!sel);
 }
 
 function render(pose,s){
@@ -938,7 +1254,20 @@ $('btns').addEventListener('beforexrselect',e=>e.preventDefault());
 $('undo').onclick=undo; $('reset').onclick=reset; $('manual').onclick=goManual;
 $('prev').onclick=prevSpk; $('next').onclick=nextSpk;
 $('sym').onclick=()=>{ sym=!sym; say(sym?'Symetria włączona – para przesuwa się lustrzanie':'Symetria wyłączona – przesuwasz pojedynczy głośnik'); };
-$('def').onclick=()=>{ ovr={}; say('Przywrócono zalecane pozycje'); };
+$('def').onclick=()=>{ ovr={}; say('Przywrócono zalecane pozycje','ok'); };
+$('done').onclick=markDone; $('up').onclick=()=>adjustHeight(0.05); $('down').onclick=()=>adjustHeight(-0.05);
+$('ear').onclick=measureEar; $('share').onclick=()=>shareText(summaryText());
+$('shareLast').onclick=()=>{ const v=LS('gar-last'); shareText(v&&v.t); };
+$('copyLast').onclick=async()=>{ const v=LS('gar-last'); try{ await navigator.clipboard.writeText(v.t); $('status').textContent='Skopiowano do schowka ✓'; }catch(e){ $('status').textContent='Nie udało się skopiować'; } };
+$('png').onclick=()=>{ $('plan').toBlob(b=>{ if(!b) return; const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='plan-glosnikow.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }); };
+/* instalacja PWA */
+let installEvt=null;
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEvt=e; $('install').style.display=''; });
+$('install').onclick=async()=>{ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; $('install').style.display='none'; };
+/* wskaźnik offline */
+function netState(){ $('net').textContent=navigator.onLine===false?'📴 Jesteś offline – aplikacja działa normalnie':''; }
+window.addEventListener('online',netState); window.addEventListener('offline',netState); netState();
+showLast();
 $('exit').onclick=()=>session&&session.end();
 $('start').onclick=startAR;
 
