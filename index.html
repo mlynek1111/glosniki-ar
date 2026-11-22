@@ -98,6 +98,8 @@
     <button id="prev">◀ Poprzedni</button>
     <button id="next" class="big">Następny ▶</button>
     <button id="undo">↶ Cofnij</button>
+    <button id="sym">⇆ Symetria: wł.</button>
+    <button id="def">↺ Domyślne</button>
     <button id="reset">Od nowa</button>
     <button id="exit">Zakończ</button>
   </div>
@@ -115,16 +117,16 @@ const TIP_FRONT='Głośnik wysokotonowy na wysokości uszu. Skręć go lekko w s
 const TIP_SURR='Na wysokości uszu albo trochę wyżej, skierowany na miejsce odsłuchu.';
 const TIP_CEIL='Na suficie, skierowany na miejsce odsłuchu. Masz moduły Atmos „odbijające od sufitu”? Postaw je na głośnikach pod tym znacznikiem.';
 const SPK = {
-  L:   {short:'L',   name:'Lewy przedni',      az:-30,  kind:'ear',    col:BLUE,   tip:'22–30°', how:TIP_FRONT},
-  R:   {short:'R',   name:'Prawy przedni',     az:30,   kind:'ear',    col:BLUE,   tip:'22–30°', how:TIP_FRONT},
+  L:   {short:'L',   name:'Lewy przedni',      az:-30,  kind:'ear',    col:BLUE,   tip:'22–30°', rng:[22,30], how:TIP_FRONT},
+  R:   {short:'R',   name:'Prawy przedni',     az:30,   kind:'ear',    col:BLUE,   tip:'22–30°', rng:[22,30], how:TIP_FRONT},
   C:   {short:'C',   name:'Centralny',         az:0,    kind:'center', col:GREEN,  tip:'pod/nad ekranem', how:'Tuż pod albo nad ekranem, przodem równo z krawędzią szafki (nie w głębi wnęki). Pochyl lekko w stronę uszu.'},
   SW:  {short:'SW',  name:'Subwoofer',         az:-20,  kind:'floor',  col:RED,    tip:'z przodu, dowolnie', how:'To tylko punkt startowy. Zrób „sub crawl”: postaw subwoofer na kanapie, puść muzykę z basem i przejdź się po przedniej części pokoju – gdzie bas brzmi najrówniej, tam go postaw. Unikaj samego narożnika, jeśli bas dudni.'},
-  SL5: {short:'SL',  name:'Lewy surround',     az:-115, kind:'ear',    col:ORANGE, tip:'110–120°', how:'Z boku i trochę za Tobą. '+TIP_SURR},
-  SR5: {short:'SR',  name:'Prawy surround',    az:115,  kind:'ear',    col:ORANGE, tip:'110–120°', how:'Z boku i trochę za Tobą. '+TIP_SURR},
-  SL7: {short:'SL',  name:'Lewy boczny',       az:-100, kind:'ear',    col:ORANGE, tip:'90–110°', how:'Prawie dokładnie z boku. '+TIP_SURR},
-  SR7: {short:'SR',  name:'Prawy boczny',      az:100,  kind:'ear',    col:ORANGE, tip:'90–110°', how:'Prawie dokładnie z boku. '+TIP_SURR},
-  BL:  {short:'SBL', name:'Lewy tylny',        az:-142, kind:'ear',    col:PURPLE, tip:'135–150°', how:'Za Tobą, rozstawiony podobnie jak przednie. '+TIP_SURR},
-  BR:  {short:'SBR', name:'Prawy tylny',       az:142,  kind:'ear',    col:PURPLE, tip:'135–150°', how:'Za Tobą, rozstawiony podobnie jak przednie. '+TIP_SURR},
+  SL5: {short:'SL',  name:'Lewy surround',     az:-115, kind:'ear',    col:ORANGE, tip:'110–120°', rng:[110,120], how:'Z boku i trochę za Tobą. '+TIP_SURR},
+  SR5: {short:'SR',  name:'Prawy surround',    az:115,  kind:'ear',    col:ORANGE, tip:'110–120°', rng:[110,120], how:'Z boku i trochę za Tobą. '+TIP_SURR},
+  SL7: {short:'SL',  name:'Lewy boczny',       az:-100, kind:'ear',    col:ORANGE, tip:'90–110°', rng:[90,110], how:'Prawie dokładnie z boku. '+TIP_SURR},
+  SR7: {short:'SR',  name:'Prawy boczny',      az:100,  kind:'ear',    col:ORANGE, tip:'90–110°', rng:[90,110], how:'Prawie dokładnie z boku. '+TIP_SURR},
+  BL:  {short:'SBL', name:'Lewy tylny',        az:-142, kind:'ear',    col:PURPLE, tip:'135–150°', rng:[135,150], how:'Za Tobą, rozstawiony podobnie jak przednie. '+TIP_SURR},
+  BR:  {short:'SBR', name:'Prawy tylny',       az:142,  kind:'ear',    col:PURPLE, tip:'135–150°', rng:[135,150], how:'Za Tobą, rozstawiony podobnie jak przednie. '+TIP_SURR},
   TML: {short:'TML', name:'Sufit lewy środk.', az:-80,  el:80, kind:'ceil', col:CYAN, tip:'nad głową, lekko z przodu', how:TIP_CEIL},
   TMR: {short:'TMR', name:'Sufit prawy środk.',az:80,   el:80, kind:'ceil', col:CYAN, tip:'nad głową, lekko z przodu', how:TIP_CEIL},
   TFL: {short:'TFL', name:'Sufit lewy przedni',az:-40,  el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z przodu', how:TIP_CEIL},
@@ -132,6 +134,8 @@ const SPK = {
   TRL: {short:'TRL', name:'Sufit lewy tylny',  az:-140, el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z tyłu', how:TIP_CEIL},
   TRR: {short:'TRR', name:'Sufit prawy tylny', az:140,  el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z tyłu', how:TIP_CEIL},
 };
+// pary symetryczne – przesunięcie jednego głośnika przesuwa lustrzanie drugi
+const PAIR = {L:'R',R:'L',SL5:'SR5',SR5:'SL5',SL7:'SR7',SR7:'SL7',BL:'BR',BR:'BL',TML:'TMR',TMR:'TML',TFL:'TFR',TFR:'TFL',TRL:'TRR',TRR:'TRL'};
 const B51 = ['L','R','C','SW','SL5','SR5'], B71 = ['L','R','C','SW','SL7','SR7','BL','BR'];
 const CONFIGS = {
   '2.0':['L','R'], '2.1':['L','R','SW'], '3.1':['L','R','C','SW'],
@@ -169,18 +173,26 @@ function viewingRange(tvIn){
 
 /* ---------- Obliczanie układu ---------- */
 // seat: punkt na podłodze; tv: środek TV (y = wysokość wskazanego punktu). planes: ściany z wykrywania pokoju.
-function computeLayout(seat, tv, S, planes){
-  const floorY=seat[1], earY=floorY+S.ear, ceilY=floorY+Math.max(S.ceil, S.ear+0.3);
+// ovr: ręcznie przesunięte głośniki {id:{az (rad), r (m w poziomie), h (m nad podłogą)}} – względem osi kanapa→TV
+function axes(seat,tv){
   let f=[tv[0]-seat[0],0,tv[2]-seat[2]]; const d=Math.max(0.3,len(f)); f=norm(f);
-  const right=cross(f,UP);
+  return {f,d,right:cross(f,UP)};
+}
+function computeLayout(seat, tv, S, planes, ovr){
+  const floorY=seat[1], earY=floorY+S.ear, ceilY=floorY+Math.max(S.ceil, S.ear+0.3);
+  const {f,d,right}=axes(seat,tv);
   const O=[seat[0],earY,seat[2]];
   const scrH=S.tvIn*IN*9/Math.hypot(16,9);
   const out=[];
   for(const id of (CONFIGS[S.cfg]||B51)){
     const s=SPK[id], a=s.az*Math.PI/180;
     const dir=norm(add(scl(f,Math.cos(a)),scl(right,Math.sin(a))));
-    let pos, clamped=false;
-    if(s.kind==='ceil'){
+    let pos, clamped=false, moved=false;
+    const ov=ovr&&ovr[id];
+    if(ov){
+      const d2=add(scl(f,Math.cos(ov.az)),scl(right,Math.sin(ov.az)));
+      pos=add([seat[0],floorY+ov.h,seat[2]],scl(d2,ov.r)); moved=true;
+    } else if(s.kind==='ceil'){
       const h=(ceilY-earY)/Math.tan(s.el*Math.PI/180);
       pos=add([seat[0],ceilY,seat[2]],scl(dir,h));
     } else if(s.kind==='center'){
@@ -189,14 +201,31 @@ function computeLayout(seat, tv, S, planes){
     } else if(s.kind==='floor'){
       pos=add([seat[0],floorY+0.25,seat[2]],scl(dir,d*0.9));
     } else {
-      let r=d;
-      const w=wallDist(O,dir,planes);
-      if(w<r+0.05){ r=Math.max(0.4,w-0.15); clamped=true; }
-      pos=add(O,scl(dir,r));
+      pos=add(O,scl(dir,d));
     }
-    out.push({id,s,pos,dist:len(sub(pos,O)),clamped});
+    // nigdy za ścianą: przycinamy odległość w poziomie do wykrytej ściany (kierunek zostaje)
+    if(s.kind!=='ceil'){
+      const hv=[pos[0]-O[0],0,pos[2]-O[2]], r=hlen(hv);
+      if(r>0.05){
+        const hd=scl(hv,1/r), w=wallAt(O,hd,planes);
+        if(w<r+0.05){ const r2=Math.max(0.3,w-0.15); pos=[O[0]+hd[0]*r2,pos[1],O[2]+hd[2]*r2]; clamped=true; }
+      }
+    }
+    const rel=sub(pos,O), ang=Math.abs(Math.atan2(dot(rel,right),dot(rel,f))*180/Math.PI);
+    const badAng = s.rng ? (ang<s.rng[0]-3||ang>s.rng[1]+3) : false;
+    out.push({id,s,pos,dist:len(rel),clamped,moved,ang,badAng});
   }
-  return {out,O,floorY,earY,ceilY,d,f};
+  return {out,O,floorY,earY,ceilY,d,f,right};
+}
+// odległość do ściany: z płaszczyzn pokoju (Quest) i z promieni skanujących (telefon i Quest)
+function wallAt(O,dir,planes){ return Math.min(wallDist(O,dir,planes), rayWall(dir)); }
+let rays=[];            // 36 promieni co 10° wokół miejsca odsłuchu: {dir, src, dist, hit}
+const RAY_N=36;
+function rayWall(dir){
+  if(!rays.length) return Infinity;
+  let yaw=Math.atan2(dir[0],dir[2]); if(yaw<0) yaw+=Math.PI*2;
+  const f=yaw/(Math.PI*2)*RAY_N, i0=Math.floor(f)%RAY_N, i1=(i0+1)%RAY_N;
+  return Math.min(rays[i0].dist, rays[i1].dist);
 }
 function wallDist(O,dir,planes){
   let best=Infinity;
@@ -356,6 +385,8 @@ let guide=-1;          // -1 = przegląd / podsumowanie, 0..n-1 = konkretny gło
 let reticleM=null, reticlePos=null, stable=false;
 const hist=[];
 let planes=[], planesSupported=false, toast='', toastUntil=0, S=null, lastLayout=null;
+// przenoszenie znaczników
+let ovr={}, sym=true, drag=null, hover=null;
 
 function say(t){ toast=t; toastUntil=performance.now()+2800; }
 const act=()=>hasDom?'tapnij ekran':'naciśnij spust';
@@ -387,8 +418,70 @@ function setTvFromEdges(){
   if(diag>=20&&diag<=150){ S.tvIn=diag; $('tvIn').value=diag; drawPlan(); }
 }
 
+/* ---------- Przenoszenie znaczników ---------- */
+const GRAB_R=0.35;
+function findGrab(){
+  if(!reticlePos||!lastLayout) return null;
+  let best=null, bd=GRAB_R;
+  const test=(t,p)=>{ const d=hlen(sub(reticlePos,p)); if(d<bd){bd=d;best=t;} };
+  lastLayout.out.forEach((o,i)=>test({type:'spk',id:o.id,i},o.pos));
+  if(seatPt) test({type:'seat'},seatPt);
+  if(tvPt) test({type:'tv'},tvPt);
+  return best;
+}
+function grabName(g){
+  if(!g) return '';
+  if(g.type==='seat') return 'miejsce odsłuchu';
+  if(g.type==='tv') return 'telewizor';
+  return SPK[g.id].short+' – '+SPK[g.id].name;
+}
+function startDrag(g){
+  drag={...g, ovr:JSON.parse(JSON.stringify(ovr)), seat:seatPt, tv:tvPt, tvL, tvR};
+  if(g.type==='spk'){ const o=lastLayout.out[g.i]; drag.h=o.pos[1]-lastLayout.floorY; if(g.i!==guide&&guide!==-1) guide=g.i; }
+}
+function setOvr(id,p,h){
+  const {f,right}=axes(seatPt,tvPt);
+  const rel=[p[0]-seatPt[0],0,p[2]-seatPt[2]];
+  const az=Math.atan2(dot(rel,right),dot(rel,f)), r=Math.max(0.2,hlen(rel));
+  ovr[id]={az,r,h};
+  const pid=PAIR[id];
+  if(sym && pid && (CONFIGS[S.cfg]||[]).includes(pid)){
+    const ph = ovr[pid] ? ovr[pid].h : (lastLayout ? (lastLayout.out.find(o=>o.id===pid)||{pos:[0,lastLayout.floorY+h]}).pos[1]-lastLayout.floorY : h);
+    ovr[pid]={az:-az,r,h:ph};
+  }
+}
+function dragUpdate(){
+  if(!drag||!reticlePos) return;
+  const p=reticlePos;
+  if(drag.type==='seat') seatPt=[p[0],drag.seat[1],p[2]];
+  else if(drag.type==='tv'){
+    const dv=[p[0]-drag.tv[0],0,p[2]-drag.tv[2]];
+    tvPt=add(drag.tv,dv); if(drag.tvL) tvL=add(drag.tvL,dv); if(drag.tvR) tvR=add(drag.tvR,dv);
+  }
+  else setOvr(drag.id,p,drag.h);
+}
+function drop(){
+  if(!reticlePos){ say('Wyceluj w podłogę, żeby upuścić znacznik'); return; }
+  dragUpdate();
+  if(drag.type==='seat' && hlen(sub(seatPt,tvPt))<0.8){ say('Za blisko telewizora'); return; }
+  if(drag.type==='seat') makeRays();
+  say('Przeniesiono: '+grabName(drag)+(drag.type==='spk'&&sym&&PAIR[drag.id]?' (para przesunięta symetrycznie)':' – układ przeliczony'));
+  drag=null;
+}
+function cancelDrag(){
+  if(!drag) return;
+  const wasSeat=drag.type==='seat'; ovr=drag.ovr; seatPt=drag.seat; tvPt=drag.tv; tvL=drag.tvL; tvR=drag.tvR; drag=null; if(wasSeat) makeRays(); say('Anulowano przenoszenie');
+}
+
 function place(){
-  if(step===3){ nextSpk(); return; }
+  if(step===3){
+    if(scanning){ finishScan(); return; }
+    if(drag){ drop(); return; }
+    const g=findGrab();
+    if(g){ startDrag(g); return; }
+    if(!hasDom) nextSpk(); else say('Wyceluj celownik w znacznik (kółko na podłodze), żeby go przenieść');
+    return;
+  }
   if(step===0 && autoTV && !manualTV){
     tvPt=autoTV.center; tvWidth=autoTV.width; tvFromAuto=true;
     const diag=Math.round(widthToDiag(tvWidth)); if(diag>=20&&diag<=150){ S.tvIn=diag; $('tvIn').value=diag; }
@@ -410,17 +503,68 @@ function place(){
     seatPt=p; startGuide();
   }
 }
-function startGuide(){ step=3; guide=-1; say('Zmierzone! Naciśnij „Następny”, żeby przejść do pierwszego głośnika'); }
+function startGuide(){ step=3; guide=-1; scanning=true; makeRays(); }
 function nSpk(){ return (CONFIGS[S.cfg]||B51).length; }
-function nextSpk(){ guide = guide+1>=nSpk() ? -1 : guide+1; }
+function nextSpk(){
+  if(scanning){ finishScan(); return; }
+  guide = guide+1>=nSpk() ? -1 : guide+1;
+}
+
+/* ---------- Skanowanie ścian promieniami ---------- */
+let scanning=false, rayGen=0;
+function clearRays(){ rayGen++; for(const r of rays) if(r.src) r.src.cancel(); rays=[]; }
+function makeRays(){
+  clearRays();
+  if(!session||!seatPt) return;
+  const gen=rayGen, o=[seatPt[0],seatPt[1]+S.ear,seatPt[2]];
+  for(let i=0;i<RAY_N;i++){
+    const a=i/RAY_N*Math.PI*2, dir=[Math.sin(a),0,Math.cos(a)];
+    const r={dir,o,src:null,dist:Infinity,hit:null}; rays.push(r);
+    try{
+      session.requestHitTestSource({space:refSpace, offsetRay:new XRRay({x:o[0],y:o[1],z:o[2],w:1},{x:dir[0],y:0,z:dir[2],w:0})})
+        .then(src=>{ if(gen!==rayGen) src.cancel(); else r.src=src; }).catch(()=>{});
+    }catch(e){}
+  }
+}
+function updateRays(frame){
+  for(const r of rays){
+    if(!r.src) continue;
+    const res=frame.getHitTestResults(r.src);
+    for(const h of res){
+      const p=h.getPose(refSpace); if(!p) continue;
+      const m=p.transform.matrix, n=col(m,1);
+      if(Math.abs(n[1])>0.5) continue;                 // tylko pionowe powierzchnie (ściany, szafy)
+      const hp=col(m,3), d=hlen(sub(hp,r.o));
+      if(d<0.25) continue;
+      r.dist = isFinite(r.dist) ? r.dist*0.8+d*0.2 : d;
+      r.hit=[r.o[0]+r.dir[0]*r.dist, r.o[1], r.o[2]+r.dir[2]*r.dist];
+      break;
+    }
+  }
+}
+function wallCoverage(){
+  if(!rays.length) return 0;
+  return rays.filter(r=>isFinite(r.dist)).length/rays.length;
+}
+// czy w kierunkach głośników przy uszach/podłodze wykryto ściany
+function missingDirs(){
+  if(!lastLayout) return [];
+  return lastLayout.out.filter(o=>o.s.kind!=='ceil' && rays.length && !isFinite(rayWall(norm([o.pos[0]-lastLayout.O[0],0,o.pos[2]-lastLayout.O[2]]))) && !isFinite(wallDist(lastLayout.O,norm([o.pos[0]-lastLayout.O[0],0,o.pos[2]-lastLayout.O[2]]),planes)));
+}
+function finishScan(){
+  scanning=false; guide=-1;
+  const miss=missingDirs();
+  say(miss.length ? `Ściany nie wykryto za: ${miss.map(o=>o.s.short).join(', ')} – sprawdź te miejsca wzrokiem` : 'Ściany wykryte – żaden głośnik nie stoi za ścianą ✓');
+}
 function prevSpk(){ guide = guide-1<-1 ? nSpk()-1 : guide-1; }
 function undo(){
-  if(step===3){ if(guide!==-1){ prevSpk(); return; } seatPt=null; step=2; manualSeat=false; }
+  if(drag){ cancelDrag(); return; }
+  if(step===3){ if(guide!==-1&&!scanning){ prevSpk(); return; } seatPt=null; step=2; manualSeat=false; scanning=false; clearRays(); }
   else if(step===2){ if(tvFromAuto){ tvPt=null; step=0; manualTV=false; } else { tvR=null; tvPt=null; step=1; } }
   else if(step===1){ tvL=null; step=0; }
 }
 function goManual(){ if(step===0) manualTV=true; if(step===2) manualSeat=true; }
-function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; }
+function reset(){ tvL=tvR=tvPt=seatPt=null; step=0; guide=-1; manualTV=manualSeat=false; tvFromAuto=false; ovr={}; drag=null; scanning=false; clearRays(); }
 
 /* ---------- Wykrywanie TV i kanapy ze skanu pokoju (Quest) ---------- */
 const RX_TV=/screen|tv|television|monitor|ekran/i, RX_SEAT=/couch|sofa|seat|kanapa/i;
@@ -466,7 +610,13 @@ function stepMsg(){
     return '3/3 · Wyceluj w podłogę pod miejscem, gdzie siedzi Twoja głowa (środek kanapy), i '+act()+'.';
   }
   if(!lastLayout) return '';
-  if(guide===-1) return '✅ Gotowe! Naciśnij „Następny”, a poprowadzę Cię do każdego głośnika.';
+  if(scanning){
+    const pct=Math.round(wallCoverage()*100);
+    return `🧱 Skanowanie ścian: ${pct}% – obróć się powoli dookoła i ${hasDom?'celuj telefonem':'patrz'} w każdą ścianę wokół kanapy. Potem ${hasDom?'„Dalej”':'spust'}.`;
+  }
+  if(drag) return `✋ Przenosisz: ${grabName(drag)} – wyceluj w nowe miejsce i ${act()}, żeby upuścić.`;
+  if(hover) return `✋ ${hasDom?'Tapnij':'Spust'}, żeby przenieść: ${grabName(hover)}`;
+  if(guide===-1) return '✅ Gotowe! Naciśnij „Następny”, a poprowadzę Cię do każdego głośnika. Znaczniki możesz przenosić.';
   const o=lastLayout.out[guide], n=lastLayout.out.length;
   const me=[cam[0],0,cam[2]], tgt=[o.pos[0],0,o.pos[2]], dist=hlen(sub(tgt,me));
   const where = dist<0.3 ? '✓ Jesteś na miejscu – postaw tu głośnik' : `idź za strzałką: ${dist.toFixed(1)} m`;
@@ -488,22 +638,36 @@ function infoText(){
     return lines.join('\n');
   }
   const L=lastLayout; if(!L) return '';
+  if(scanning){
+    lines.push('Kreski wokół miejsca odsłuchu: 🟢 ściana wykryta, 🔴 jeszcze nie. Głośniki same przesuwają się przed wykryte ściany.');
+    const miss=missingDirs();
+    if(miss.length) lines.push('Brakuje ścian za: '+miss.map(o=>o.s.short).join(', '));
+    else lines.push('Wszystkie kierunki głośników sprawdzone ✓');
+    lines.push('Gładkie białe ściany wykrywają się gorzej – celuj w miejsca z obrazem, kontaktem, listwą albo meblem.');
+    if(!hasDom) lines.push('Spust = zakończ skanowanie · Grip = cofnij');
+    return lines.join('\n');
+  }
   if(guide===-1){
     const vr=viewingRange(S.tvIn);
     lines.push(`Zestaw ${S.cfg} · TV ${S.tvIn}" · odległość od TV ${L.d.toFixed(2)} m (zalecana ${vr.thx.toFixed(1)}–${vr.smpte.toFixed(1)} m)`);
     const off=axisOffset(); if(Math.abs(off)>0.25) lines.push(`⚠ Siedzisz ${cm(Math.abs(off))} cm na ${off>0?'prawo':'lewo'} od środka TV – najlepiej siedzieć na jego osi.`);
-    if(L.out.some(o=>o.clamped)) lines.push('Część głośników przysunięta do ściany – kąt zachowany.');
+    if(L.out.some(o=>o.clamped)) lines.push('Głośniki przy ścianach: '+L.out.filter(o=>o.clamped).map(o=>o.s.short).join(', ')+' – przysunięte przed ścianę, kąt zachowany.');
+    const miss=missingDirs(); if(miss.length) lines.push('⚠ Nie wykryto ściany za: '+miss.map(o=>o.s.short).join(', ')+' – sprawdź, czy nie wypadają za ścianą.');
+    const bad=L.out.filter(o=>o.badAng);
+    if(bad.length) lines.push('⚠ Kąt poza zaleceniem: '+bad.map(o=>`${o.s.short} ${Math.round(o.ang)}° (${o.s.tip})`).join(', '));
+    lines.push('Wyceluj w znacznik i '+act()+', żeby go przenieść. '+(sym?'Para po drugiej stronie przesunie się symetrycznie.':'Symetria wyłączona.'));
     lines.push('Po ustawieniu: wpisz w amplitunerze odległości:');
     lines.push(L.out.map(o=>`${o.s.short} ${o.dist.toFixed(2)} m`).join(' · '));
     lines.push('Potem uruchom autokalibrację (Audyssey / YPAO / MCACC) z mikrofonem na wysokości uszu w miejscu odsłuchu.');
-    if(!hasDom) lines.push('Spust = następny głośnik · Grip = cofnij');
+    if(!hasDom) lines.push('Spust na znaczniku = przenieś · spust obok = następny · Grip = cofnij');
   } else {
     const o=L.out[guide], h=cm(o.pos[1]-L.floorY);
     lines.push(o.s.kind==='ceil' ? `Na suficie · ${o.s.tip} · ${o.dist.toFixed(2)} m od uszu` :
                `Wysokość: ${h} cm · kąt ${o.s.tip} · ${o.dist.toFixed(2)} m od uszu`);
     if(o.clamped) lines.push('Ściana jest bliżej niż zalecana odległość – postaw przy ścianie, w tym samym kierunku.');
+    if(o.moved) lines.push(`Przesunięty ręcznie · kąt teraz ${Math.round(o.ang)}°`+(o.badAng?` ⚠ zalecane ${o.s.tip}`:' ✓'));
     lines.push(o.s.how);
-    if(!hasDom) lines.push('Spust = następny · Grip = poprzedni');
+    if(!hasDom) lines.push('Spust na znaczniku = przenieś · spust obok = następny · Grip = poprzedni');
   }
   return lines.join('\n');
 }
@@ -525,6 +689,7 @@ function onSources(e){
   e.removed.forEach(src=>{const hs=ctrlHit.get(src); if(hs) hs.cancel(); ctrlHit.delete(src);});
 }
 function onSqueeze(){
+  if(drag){ cancelDrag(); return; }
   if((step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat)) goManual(); else undo();
 }
 
@@ -553,7 +718,7 @@ async function startAR(){
   session.addEventListener('inputsourceschange',onSources);
   for(const src of session.inputSources) addCtrl(src);
   session.addEventListener('end',()=>{
-    session=null; viewerHit=null; ctrlHit.clear();
+    clearRays(); session=null; viewerHit=null; ctrlHit.clear();
     $('overlay').classList.remove('on'); $('landing').style.display='';
   });
   session.requestAnimationFrame(onFrame);
@@ -589,6 +754,7 @@ function onFrame(t,frame){
     });
   }
   if(step===0||step===2) detectObjects(frame);
+  if(rays.length) updateRays(frame);
 
   tris=[]; quads=[];
   const t1=t/1000;
@@ -596,16 +762,17 @@ function onFrame(t,frame){
     const c=p.vertical?[1,1,1,0.25]:[0.55,0.75,1,0.2];
     for(let i=0;i<p.world.length;i++) seg(p.world[i],p.world[(i+1)%p.world.length],0.012,c);
   }
-  if(src && step<3){
+  if(src){
     const cp=frame.getPose(src.targetRaySpace,refSpace);
     if(cp){ const m=cp.transform.matrix, o=col(m,3), fwd=scl(col(m,2),-1);
       seg(o,reticlePos||add(o,scl(fwd,3)),0.006,[1,1,1,0.5]); }
   }
   // celownik (zielony = stabilny)
-  if(reticlePos && step<3){
+  if(reticlePos){
     const x=col(reticleM,0), y=col(reticleM,1), z=col(reticleM,2), p=add(reticlePos,scl(y,0.004));
-    const sz=0.2*Math.max(1,len(sub(cam,p))/2.2);
-    quads.push({t:ringTex().tex,M:m4basis(x,z,y,p,sz,sz),tint:stable?[0.35,0.95,0.55,1]:[1,1,1,0.9]});
+    const sz=(step<3?0.2:0.14)*Math.max(1,len(sub(cam,p))/2.2);
+    const tint = step<3 ? (stable?[0.35,0.95,0.55,1]:[1,1,1,0.9]) : (drag||hover ? [1,0.85,0.2,1] : [1,1,1,0.6]);
+    quads.push({t:ringTex().tex,M:m4basis(x,z,y,p,sz,sz),tint});
     if(step===1){ floorSeg(add(tvL,[0,0.003,0]),add(p,[0,-0.001,0]),0.012,[1,1,1,0.9]);
       label([`${hlen(sub(reticlePos,tvL)).toFixed(2)} m ≈ ${Math.round(widthToDiag(hlen(sub(reticlePos,tvL))))}"`],p,[1,1,1]); }
     if(step===2&&tvPt){ seg(tvPt,p,0.008,[1,1,1,0.6]); label([`${hlen(sub(reticlePos,tvPt)).toFixed(2)} m od TV`],p,[1,1,1]); }
@@ -622,22 +789,36 @@ function onFrame(t,frame){
   }
   if(tvL){ billboard(discTex([1,1,1]),tvL,0.05*camScale(tvL)); }
   if(tvR){ billboard(discTex([1,1,1]),tvR,0.05*camScale(tvR)); seg(tvL,tvR,0.01,[1,1,1,0.8]); }
-  if(tvPt){ billboard(discTex([0.9,0.9,0.9]),tvPt,0.07*camScale(tvPt)); label([`TV ${S.tvIn}"`],tvPt,[0.9,0.9,0.9]); }
+  if(tvPt){ const hot=(hover&&hover.type==='tv')||(drag&&drag.type==='tv'); billboard(discTex(hot?[1,0.85,0.2]:[0.9,0.9,0.9]),tvPt,(hot?0.11:0.07)*camScale(tvPt)); label([`TV ${S.tvIn}"`],tvPt,[0.9,0.9,0.9]); }
   if(seatPt){
-    flat(ringTex(),add(seatPt,[0,0.004,0]),0.5,[1,1,1,0.9]);
+    const hotS=(hover&&hover.type==='seat')||(drag&&drag.type==='seat');
+    flat(ringTex(),add(seatPt,[0,0.004,0]),0.5,hotS?[1,0.85,0.2,1]:[1,1,1,0.9]);
     const head=[seatPt[0],seatPt[1]+S.ear,seatPt[2]];
     seg(seatPt,head,0.01,[1,1,1,0.6]);
     billboard(discTex([1,1,1]),head,0.07*camScale(head));
     floorSeg(add(seatPt,[0,0.004,0]),[tvPt[0],seatPt[1]+0.004,tvPt[2]],0.012,[1,1,1,0.4]);
   }
 
-  lastLayout=null;
+  lastLayout=null; hover=null;
   if(step===3){
-    const L=computeLayout(seatPt,tvPt,S,planes); lastLayout=L;
+    dragUpdate();
+    const L=computeLayout(seatPt,tvPt,S,planes,ovr); lastLayout=L;
+    if(!drag && !scanning) hover=findGrab();
     if(guide>=nSpk()) guide=-1;
+    // promienie skanujące ściany: zielone = ściana wykryta, czerwone = jeszcze nie
+    const so=[seatPt[0],L.floorY+0.005,seatPt[2]], ra=scanning?1:0.35;
+    for(const r of rays){
+      const a0=add(so,scl(r.dir,0.45)), a1=add(so,scl(r.dir,0.7));
+      if(isFinite(r.dist)){
+        floorSeg(a0,a1,0.03,[0.3,0.95,0.5,0.8*ra]);
+        if(scanning){ const hb=[r.hit[0],L.floorY+0.05,r.hit[2]]; seg(hb,add(hb,[0,1.6,0]),0.02,[0.3,0.95,0.5,0.45]); }
+      } else floorSeg(a0,a1,0.03,[1,0.3,0.3,0.8*ra]);
+    }
     if(guide===-1) label(['Miejsce odsłuchu',`uszy ${cm(S.ear)} cm`],L.O,[1,1,1]);
+    const partner = drag&&drag.type==='spk'&&sym ? PAIR[drag.id] : null;
     L.out.forEach((o,i)=>{
-      const sel = guide===-1 || guide===i, a = sel?1:0.22;
+      const hot = (drag&&drag.id===o.id) || o.id===partner || (hover&&hover.id===o.id);
+      const sel = guide===-1 || guide===i || hot, a = sel?1:0.22;
       const c=o.s.col, p=o.pos;
       seg(L.O,p,0.006,[c[0],c[1],c[2],0.55*a]);
       if(o.s.kind==='ceil'){
@@ -647,15 +828,18 @@ function onFrame(t,frame){
         flat(ringTex(),fp,guide===i?0.3+0.08*Math.sin(t1*5):0.3,[c[0],c[1],c[2],a]);
         seg(fp,p,0.012,[c[0],c[1],c[2],0.8*a]);
       }
-      billboard(discTex(c),p,(guide===i?0.13:0.09)*camScale(p),[1,1,1,a]);
+      billboard(discTex(c),p,(guide===i||hot?0.13:0.09)*camScale(p),[1,1,1,a]);
       if(sel){
         const hh=cm(p[1]-L.floorY);
         const l2 = o.s.kind==='ceil' ? `na suficie · ${o.dist.toFixed(2)} m` : `wys. ${hh} cm · ${o.dist.toFixed(2)} m`;
-        label([`${o.s.short} · ${o.s.name}`, l2], p, c);
+        const lines=[`${o.s.short} · ${o.s.name}`, l2];
+        if(o.badAng) lines.push(`⚠ kąt ${Math.round(o.ang)}° (zalecane ${o.s.tip})`);
+        else if(o.clamped) lines.push('przy ścianie');
+        label(lines, p, c);
       }
     });
     // strzałka prowadząca do wybranego głośnika
-    if(guide>=0){
+    if(guide>=0 && !drag && !scanning){
       const o=L.out[guide], me=[cam[0],L.floorY+0.006,cam[2]], tgt=[o.pos[0],L.floorY+0.006,o.pos[2]];
       const v=sub(tgt,me), dist=hlen(v);
       if(dist>0.3){
@@ -693,12 +877,18 @@ function wrap(t,n){
 let btnState='';
 function updateButtons(){
   const auto=(step===0&&autoTV&&!manualTV)||(step===2&&autoSeat&&!manualSeat);
-  const st=[auto, step===3, step>0].join();
+  const g=step===3&&!scanning;
+  const st=[auto, step, scanning, !!drag, sym, Object.keys(ovr).length>0].join();
   if(st===btnState) return; btnState=st;
-  $('manual').style.display=auto?'':'none';
-  $('prev').style.display=step===3?'':'none';
-  $('next').style.display=step===3?'':'none';
-  $('undo').style.display=step>0&&step<3?'':'none';
+  const show=(id,v)=>$(id).style.display=v?'':'none';
+  show('manual',auto);
+  show('prev',g&&!drag);
+  show('next',step===3&&!drag);
+  $('next').textContent=scanning?'Dalej ▶':'Następny ▶';
+  show('undo',(step>0&&step<3)||drag);
+  $('undo').textContent=drag?'✕ Anuluj':'↶ Cofnij';
+  show('sym',g&&!drag); $('sym').textContent='⇆ Symetria: '+(sym?'wł.':'wył.');
+  show('def',g&&!drag&&Object.keys(ovr).length>0);
 }
 
 function render(pose,s){
@@ -736,6 +926,8 @@ function render(pose,s){
 $('btns').addEventListener('beforexrselect',e=>e.preventDefault());
 $('undo').onclick=undo; $('reset').onclick=reset; $('manual').onclick=goManual;
 $('prev').onclick=prevSpk; $('next').onclick=nextSpk;
+$('sym').onclick=()=>{ sym=!sym; say(sym?'Symetria włączona – para przesuwa się lustrzanie':'Symetria wyłączona – przesuwasz pojedynczy głośnik'); };
+$('def').onclick=()=>{ ovr={}; say('Przywrócono zalecane pozycje'); };
 $('exit').onclick=()=>session&&session.end();
 $('start').onclick=startAR;
 
