@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ustawiacz Głośników AR</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0f17">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --bg:#0b0f17; --card:#141b27; --line:#25304a; --txt:#e8ecf4; --mut:#93a0b8; --acc:#4f8cff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #landing { max-width:560px; margin:0 auto; padding:22px 18px 40px; }
+  h1 { font-size:1.5rem; margin:6px 0 4px; }
+  .sub { color:var(--mut); margin:0 0 18px; line-height:1.4; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:14px; }
+  label { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:8px 0; font-size:.95rem; }
+  select,input { background:#0e1420; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:1rem; width:120px; }
+  button { font:inherit; }
+  #start { width:100%; padding:15px; font-size:1.1rem; font-weight:700; border:0; border-radius:12px; background:var(--acc); color:#fff; }
+  #start:disabled { background:#33405c; color:#8c97ad; }
+  #status { color:#ffb454; font-size:.9rem; line-height:1.4; min-height:1em; }
+  #plan { width:100%; aspect-ratio:1/1; background:#0e1420; border-radius:10px; display:block; }
+  details { color:var(--mut); line-height:1.5; font-size:.92rem; }
+  summary { color:var(--txt); cursor:pointer; font-weight:600; }
+  h2 { font-size:1rem; margin:0 0 8px; }
+  #overlay { position:fixed; inset:0; pointer-events:none; display:none; font-size:15px; }
+  #overlay.on { display:block; }
+  #panel { pointer-events:none; position:absolute; top:0; left:0; right:0; padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;
+           background:linear-gradient(rgba(8,11,18,.88),rgba(8,11,18,.6)); line-height:1.35; }
+  #msg { font-weight:600; }
+  #info { color:#c9d3e6; font-size:13px; margin-top:4px; white-space:pre-line; }
+  #btns { pointer-events:auto; position:absolute; left:0; right:0; bottom:0; display:flex; gap:8px;
+          padding:10px 12px calc(env(safe-area-inset-bottom) + 12px); }
+  #btns button { flex:1; padding:13px 6px; border-radius:12px; border:0; background:rgba(20,27,39,.9); color:#fff; font-weight:600; }
+  #btns #exit { background:rgba(170,40,50,.9); }
+  #c { display:none; }
+</style>
+</head>
+<body>
+<div id="landing">
+  <h1>🔊 Ustawiacz Głośników AR</h1>
+  <p class="sub">Pokaże w Twoim pokoju, gdzie dokładnie postawić każdy głośnik kina domowego, według schematów Dolby.</p>
+
+  <div class="card">
+    <label>Zestaw
+      <select id="cfg">
+        <option>2.0</option><option>2.1</option><option>3.1</option>
+        <option selected>5.1</option><option>7.1</option>
+        <option>5.1.2</option><option>5.1.4</option><option>7.1.2</option><option>7.1.4</option>
+      </select>
+    </label>
+    <label>Przekątna TV (cale) <input id="tvIn" type="number" inputmode="numeric" value="55" min="20" max="150"></label>
+    <label>Wysokość uszu na siedząco (cm) <input id="earCm" type="number" inputmode="numeric" value="110" min="60" max="160"></label>
+    <label>Wysokość sufitu (cm) <input id="ceilCm" type="number" inputmode="numeric" value="250" min="200" max="500"></label>
+  </div>
+
+  <button id="start" disabled>Start AR</button>
+  <p id="status">Sprawdzam, czy urządzenie obsługuje AR…</p>
+
+  <div class="card">
+    <h2>Plan z góry (podgląd bez AR)</h2>
+    <label>Odległość kanapa – TV (m) <input id="dist2d" type="number" inputmode="decimal" value="2.5" step="0.1" min="1" max="8"></label>
+    <canvas id="plan" width="800" height="800"></canvas>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Jak to działa</summary>
+      <p><b>Telefon (Android + Chrome):</b> po starcie powoli poruszaj telefonem, aż pojawi się biały celownik na podłodze. Najpierw wskaż telewizor (podłogę pod nim albo środek ekranu na ścianie) i tapnij. Potem wskaż podłogę pod miejscem, gdzie siedzi Twoja głowa, i tapnij. Pojawią się znaczniki głośników z wysokością i odległością.</p>
+      <p><b>Meta Quest 3:</b> otwórz ten adres w przeglądarce Questa. Celujesz kontrolerem i naciskasz spust (albo szczypiesz palcami). Boczny przycisk (grip) cofa krok. Jeśli masz skonfigurowaną przestrzeń (Ustawienia → Środowisko fizyczne → Konfiguracja przestrzeni), aplikacja widzi Twoje ściany i nie postawi głośnika „za ścianą”.</p>
+      <p><b>Offline:</b> po pierwszym otwarciu z internetem aplikacja działa bez sieci. Na telefonie dodaj ją do ekranu głównego (menu Chrome → Dodaj do ekranu głównego).</p>
+      <p><b>Dokładność:</b> kilka centymetrów. Kąty to zalecenia; jeśli ściana nie pozwala, zachowaj kąt i przysuń głośnik bliżej — amplituner wyrówna to w ustawieniach odległości / autokalibracji.</p>
+    </details>
+  </div>
+</div>
+
+<div id="overlay">
+  <div id="panel"><div id="msg"></div><div id="info"></div></div>
+  <div id="btns"><button id="undo">↶ Cofnij</button><button id="reset">Od nowa</button><button id="exit">Zakończ</button></div>
+</div>
+<canvas id="c"></canvas>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ---------- Definicje głośników (kąty wg schematów Dolby) ---------- */
+// az: azymut w stopniach, + = w prawo od kierunku patrzenia na TV. el: elewacja dla sufitowych.
+const BLUE=[0.3,0.6,1], GREEN=[0.25,0.9,0.45], RED=[1,0.35,0.35], ORANGE=[1,0.62,0.18], PURPLE=[0.78,0.45,1], CYAN=[0.2,0.9,0.95];
+const SPK = {
+  L:   {short:'L',   name:'Lewy przedni',      az:-30,  kind:'ear',    col:BLUE,   tip:'22–30°'},
+  R:   {short:'R',   name:'Prawy przedni',     az:30,   kind:'ear',    col:BLUE,   tip:'22–30°'},
+  C:   {short:'C',   name:'Centralny',         az:0,    kind:'center', col:GREEN,  tip:'pod/nad ekranem'},
+  SW:  {short:'SW',  name:'Subwoofer',         az:-20,  kind:'floor',  col:RED,    tip:'z przodu, dowolnie'},
+  SL5: {short:'SL',  name:'Lewy surround',     az:-115, kind:'ear',    col:ORANGE, tip:'110–120°'},
+  SR5: {short:'SR',  name:'Prawy surround',    az:115,  kind:'ear',    col:ORANGE, tip:'110–120°'},
+  SL7: {short:'SL',  name:'Lewy boczny',       az:-100, kind:'ear',    col:ORANGE, tip:'90–110°'},
+  SR7: {short:'SR',  name:'Prawy boczny',      az:100,  kind:'ear',    col:ORANGE, tip:'90–110°'},
+  BL:  {short:'SBL', name:'Lewy tylny',        az:-142, kind:'ear',    col:PURPLE, tip:'135–150°'},
+  BR:  {short:'SBR', name:'Prawy tylny',       az:142,  kind:'ear',    col:PURPLE, tip:'135–150°'},
+  TML: {short:'TML', name:'Sufit lewy środk.', az:-80,  el:80, kind:'ceil', col:CYAN, tip:'nad głową, lekko z przodu'},
+  TMR: {short:'TMR', name:'Sufit prawy środk.',az:80,   el:80, kind:'ceil', col:CYAN, tip:'nad głową, lekko z przodu'},
+  TFL: {short:'TFL', name:'Sufit lewy przedni',az:-40,  el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z przodu'},
+  TFR: {short:'TFR', name:'Sufit prawy przedni',az:40,  el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z przodu'},
+  TRL: {short:'TRL', name:'Sufit lewy tylny',  az:-140, el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z tyłu'},
+  TRR: {short:'TRR', name:'Sufit prawy tylny', az:140,  el:45, kind:'ceil', col:CYAN, tip:'ok. 45° w górę, z tyłu'},
+};
+const B51 = ['L','R','C','SW','SL5','SR5'], B71 = ['L','R','C','SW','SL7','SR7','BL','BR'];
+const CONFIGS = {
+  '2.0':['L','R'], '2.1':['L','R','SW'], '3.1':['L','R','C','SW'],
+  '5.1':B51, '7.1':B71,
+  '5.1.2':[...B51,'TML','TMR'], '5.1.4':[...B51,'TFL','TFR','TRL','TRR'],
+  '7.1.2':[...B71,'TML','TMR'], '7.1.4':[...B71,'TFL','TFR','TRL','TRR'],
+};
+
+/* ---------- Matematyka ---------- */
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const scl=(a,s)=>[a[0]*s,a[1]*s,a[2]*s];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const len=a=>Math.hypot(a[0],a[1],a[2]);
+const norm=a=>{const l=len(a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
+const col=(m,i)=>[m[i*4],m[i*4+1],m[i*4+2]];
+const xform=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12], m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13], m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]];
+function m4mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+function m4basis(x,y,z,p,sx,sy){return new Float32Array([x[0]*sx,x[1]*sx,x[2]*sx,0, y[0]*sy,y[1]*sy,y[2]*sy,0, z[0],z[1],z[2],0, p[0],p[1],p[2],1]);}
+const UP=[0,1,0];
+
+/* ---------- Ustawienia ---------- */
+function readSettings(){
+  const num=(id,def)=>{const v=parseFloat($(id).value);return isFinite(v)?v:def;};
+  return { cfg:$('cfg').value, tvIn:num('tvIn',55), ear:num('earCm',110)/100, ceil:num('ceilCm',250)/100 };
+}
+function viewingRange(tvIn){
+  const w = tvIn*0.0254*16/Math.hypot(16,9);
+  return { thx: w/(2*Math.tan(20*Math.PI/180)), smpte: w/(2*Math.tan(15*Math.PI/180)) };
+}
+
+/* ---------- Obliczanie układu ---------- */
+// seat, tv: punkty [x,y,z]; seat leży na podłodze. planes: ściany z wykrywania pokoju (opcjonalnie)
+function computeLayout(seat, tv, tvWall, S, planes){
+  const floorY=seat[1], earY=floorY+S.ear, ceilY=floorY+Math.max(S.ceil, S.ear+0.3);
+  let f=[tv[0]-seat[0],0,tv[2]-seat[2]]; const d=Math.max(0.3,len(f)); f=norm(f);
+  const right=cross(f,UP);
+  const O=[seat[0],earY,seat[2]];
+  const out=[];
+  for(const id of (CONFIGS[S.cfg]||B51)){
+    const s=SPK[id], a=s.az*Math.PI/180;
+    const dir=norm(add(scl(f,Math.cos(a)),scl(right,Math.sin(a))));
+    let pos, clamped=false;
+    if(s.kind==='ceil'){
+      const h=(ceilY-earY)/Math.tan(s.el*Math.PI/180);
+      pos=add([seat[0],ceilY,seat[2]],scl(dir,h));
+    } else if(s.kind==='center'){
+      let y = tvWall ? Math.max(floorY+0.3, tv[1]-0.45) : earY-0.35;
+      pos=[seat[0]+f[0]*d, y, seat[2]+f[2]*d];
+    } else if(s.kind==='floor'){
+      const p=add([seat[0],floorY+0.25,seat[2]],scl(dir,d*0.9));
+      pos=p;
+    } else {
+      let r=d;
+      const w=wallDist(O,dir,planes);
+      if(w<r+0.05){ r=Math.max(0.4,w-0.15); clamped=true; }
+      pos=add(O,scl(dir,r));
+    }
+    out.push({id,s,pos,dist:len(sub(pos,O)),clamped});
+  }
+  return {out,O,floorY,earY,ceilY,d,f};
+}
+function wallDist(O,dir,planes){
+  let best=Infinity;
+  if(!planes) return best;
+  for(const p of planes){
+    if(!p.vertical) continue;
+    const n=col(p.m,1), p0=col(p.m,3), den=dot(dir,n);
+    if(Math.abs(den)<1e-3) continue;
+    const t=dot(sub(p0,O),n)/den;
+    if(t<=0.05||t>=best) continue;
+    const L=xform(p.inv,add(O,scl(dir,t)));
+    const b=p.bbox, m=0.1;
+    if(L[0]<b[0]-m||L[0]>b[1]+m||L[2]<b[2]-m||L[2]>b[3]+m) continue;
+    best=t;
+  }
+  return best;
+}
+
+/* ---------- Plan 2D (bez AR) ---------- */
+function drawPlan(){
+  const S=readSettings(), cv=$('plan'), ctx=cv.getContext('2d'), W=cv.width;
+  const d=Math.min(8,Math.max(1,parseFloat($('dist2d').value)||2.5));
+  const L=computeLayout([0,0,0],[0,0,-d],false,S,null);
+  let maxR=d;
+  L.out.forEach(o=>maxR=Math.max(maxR,Math.hypot(o.pos[0],o.pos[2])));
+  const sc=(W/2-70)/(maxR+0.3), cx=W/2, cy=W/2;
+  const P=p=>[cx+p[0]*sc, cy+p[2]*sc];
+  ctx.clearRect(0,0,W,W);
+  ctx.strokeStyle='#25304a'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(cx,cy,d*sc,0,Math.PI*2); ctx.stroke();
+  // TV
+  const tv=P([0,0,-d]); ctx.fillStyle='#e8ecf4';
+  const tw=S.tvIn*0.0254*0.8716*sc; ctx.fillRect(tv[0]-tw/2,tv[1]-6,tw,8);
+  ctx.font='600 24px system-ui'; ctx.textAlign='center'; ctx.fillText(`TV ${S.tvIn}"`,tv[0],tv[1]-16);
+  // Słuchacz
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(cx,cy,14,0,Math.PI*2); ctx.fill();
+  ctx.fillText('Ty',cx,cy+44);
+  L.out.forEach(o=>{
+    const p=P(o.pos), c=`rgb(${o.s.col.map(v=>Math.round(v*255)).join(',')})`;
+    ctx.strokeStyle=c; ctx.globalAlpha=0.45; ctx.setLineDash(o.s.kind==='ceil'?[8,8]:[]);
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(p[0],p[1]); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+    ctx.fillStyle=c; ctx.beginPath();
+    if(o.s.kind==='ceil'){ ctx.rect(p[0]-13,p[1]-13,26,26); } else ctx.arc(p[0],p[1],15,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle='#e8ecf4'; ctx.font='700 24px system-ui';
+    ctx.fillText(o.s.short,p[0],p[1]-24);
+  });
+  const vr=viewingRange(S.tvIn);
+  ctx.textAlign='left'; ctx.fillStyle='#93a0b8'; ctx.font='22px system-ui';
+  ctx.fillText(`○ przy uszach  □ sufit · zalecana odl. od TV: ${vr.thx.toFixed(2)}–${vr.smpte.toFixed(2)} m`,16,W-16);
+}
+['cfg','tvIn','earCm','ceilCm','dist2d'].forEach(id=>$(id).addEventListener('input',drawPlan));
+drawPlan();
+
+/* ---------- WebGL ---------- */
+let gl, progC, progT, quadBuf, dynBuf, triCount=0;
+const texCache=new Map();
+function mkProg(vs,fs){
+  const p=gl.createProgram();
+  for(const [type,src] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]){
+    const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p,s);
+  }
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+function initGL(){
+  gl=$('c').getContext('webgl',{xrCompatible:true,alpha:true,antialias:true});
+  if(!gl) throw new Error('Brak WebGL');
+  progC=mkProg(
+    'attribute vec3 aP;attribute vec4 aC;uniform mat4 uVP;varying vec4 vC;void main(){vC=aC;gl_Position=uVP*vec4(aP,1.0);}',
+    'precision mediump float;varying vec4 vC;void main(){gl_FragColor=vC;}');
+  progC.aP=gl.getAttribLocation(progC,'aP'); progC.aC=gl.getAttribLocation(progC,'aC'); progC.uVP=gl.getUniformLocation(progC,'uVP');
+  progT=mkProg(
+    'attribute vec2 aQ;uniform mat4 uVP;uniform mat4 uM;varying vec2 vT;void main(){vT=vec2(aQ.x+0.5,0.5-aQ.y);gl_Position=uVP*uM*vec4(aQ,0.0,1.0);}',
+    'precision mediump float;varying vec2 vT;uniform sampler2D uTex;uniform vec4 uTint;void main(){gl_FragColor=texture2D(uTex,vT)*uTint;}');
+  progT.aQ=gl.getAttribLocation(progT,'aQ'); progT.uVP=gl.getUniformLocation(progT,'uVP');
+  progT.uM=gl.getUniformLocation(progT,'uM'); progT.uTint=gl.getUniformLocation(progT,'uTint'); progT.uTex=gl.getUniformLocation(progT,'uTex');
+  quadBuf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-.5,-.5,.5,-.5,.5,.5,-.5,-.5,.5,.5,-.5,.5]),gl.STATIC_DRAW);
+  dynBuf=gl.createBuffer();
+}
+function canvasTex(cv){
+  const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cv);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  return t;
+}
+function cached(key,make){
+  if(texCache.has(key)) return texCache.get(key);
+  if(texCache.size>250){ texCache.forEach(v=>gl.deleteTexture(v.tex)); texCache.clear(); }
+  const v=make(); texCache.set(key,v); return v;
+}
+const rgb=(c,a=1)=>`rgba(${c.map(v=>Math.round(v*255)).join(',')},${a})`;
+function ringTex(){return cached('ring',()=>{const cv=document.createElement('canvas');cv.width=cv.height=128;const x=cv.getContext('2d');
+  x.strokeStyle='#fff';x.lineWidth=10;x.beginPath();x.arc(64,64,52,0,Math.PI*2);x.stroke();
+  x.fillStyle='#fff';x.beginPath();x.arc(64,64,7,0,Math.PI*2);x.fill();return {tex:canvasTex(cv),aspect:1};});}
+function discTex(c){return cached('disc'+c,()=>{const cv=document.createElement('canvas');cv.width=cv.height=128;const x=cv.getContext('2d');
+  x.fillStyle=rgb(c);x.beginPath();x.arc(64,64,54,0,Math.PI*2);x.fill();
+  x.strokeStyle='#fff';x.lineWidth=8;x.stroke();return {tex:canvasTex(cv),aspect:1};});}
+function textTex(lines,accent){
+  return cached('t'+lines.join('\n')+accent,()=>{
+    const fs=44, lh=56, pad=22, cv=document.createElement('canvas'), x=cv.getContext('2d');
+    const font=i=>`${i===0?700:500} ${i===0?fs:fs-8}px system-ui,sans-serif`;
+    let w=0; lines.forEach((l,i)=>{x.font=font(i);w=Math.max(w,x.measureText(l).width);});
+    cv.width=Math.ceil(w+pad*2); cv.height=lines.length*lh+pad*2-10;
+    x.fillStyle='rgba(10,14,22,0.86)'; x.strokeStyle=accent?rgb(accent):'rgba(255,255,255,0.5)'; x.lineWidth=5;
+    const r=20; x.beginPath(); x.moveTo(r,0); x.arcTo(cv.width,0,cv.width,cv.height,r); x.arcTo(cv.width,cv.height,0,cv.height,r);
+    x.arcTo(0,cv.height,0,0,r); x.arcTo(0,0,cv.width,0,r); x.closePath(); x.fill(); x.stroke();
+    x.textBaseline='top';
+    lines.forEach((l,i)=>{x.font=font(i); x.fillStyle=i===0&&accent?rgb(accent):'#fff'; x.fillText(l,pad,pad+i*lh);});
+    return {tex:canvasTex(cv),aspect:cv.width/cv.height};
+  });
+}
+
+/* ---------- Scena budowana co klatkę ---------- */
+let tris=[], quads=[], cam=[0,0,0];
+function seg(a,b,w,c){
+  const dir=sub(b,a), mid=scl(add(a,b),0.5);
+  let side=cross(dir,sub(cam,mid)); if(len(side)<1e-6) side=[1,0,0];
+  side=scl(norm(side),w/2);
+  const p=[add(a,side),sub(a,side),add(b,side),sub(b,side)];
+  for(const v of [p[0],p[1],p[2],p[2],p[1],p[3]]) tris.push(v[0],v[1],v[2],c[0],c[1],c[2],c[3]);
+}
+function billboard(tex,p,h,tint=[1,1,1,1]){
+  let z=sub(cam,p); if(len(z)<1e-4) return; z=norm(z);
+  let x=cross(UP,z); if(len(x)<1e-3) x=[1,0,0]; x=norm(x);
+  const y=cross(z,x);
+  quads.push({t:tex.tex,M:m4basis(x,y,z,p,h*tex.aspect,h),tint});
+}
+function flat(tex,p,size,tint=[1,1,1,1]){ // poziomo (podłoga/sufit)
+  quads.push({t:tex.tex,M:m4basis([1,0,0],[0,0,-1],[0,1,0],p,size,size),tint});
+}
+const camScale=p=>Math.max(1,len(sub(cam,p))/1.6);
+function label(lines,p,accent){
+  const t=textTex(lines,accent), h=0.034*lines.length*camScale(p);
+  billboard(t,add(p,[0,h/2+0.06*camScale(p),0]),h);
+}
+
+/* ---------- Stan AR ---------- */
+let session=null, refSpace, viewerSpace, viewerHit=null, hasDom=false;
+const ctrlHit=new Map();
+let step=0, tvPt=null, tvWall=false, seatPt=null, reticle=null, planes=[], planesSupported=false;
+let toast='', toastUntil=0, S=null;
+
+function say(t){ toast=t; toastUntil=performance.now()+2600; }
+function act(){ return hasDom?'tapnij ekran':'naciśnij spust'; }
+function stepMsg(){
+  if(performance.now()<toastUntil) return '⚠ '+toast;
+  if(step<2 && !reticle) return 'Powoli poruszaj '+(hasDom?'telefonem':'głową / kontrolerem')+', aż pojawi się biały celownik na podłodze…';
+  if(step===0) return '1/2 · Wyceluj w telewizor (podłoga pod nim albo środek ekranu na ścianie) i '+act()+'.';
+  if(step===1) return '2/2 · Wyceluj w podłogę pod miejscem, gdzie siedzi Twoja głowa (środek kanapy), i '+act()+'.';
+  return '✅ Gotowe! Ustaw głośniki przy kolorowych znacznikach.';
+}
+let lastLayout=null;
+function infoText(){
+  const lines=[];
+  if(planesSupported) lines.push(`Wykryte powierzchnie pokoju: ${planes.length}`);
+  if(step===2 && lastLayout){
+    const vr=viewingRange(S.tvIn);
+    lines.push(`Zestaw ${S.cfg} · odległość od TV: ${lastLayout.d.toFixed(2)} m`);
+    lines.push(`Zalecana dla ${S.tvIn}": ${vr.thx.toFixed(2)}–${vr.smpte.toFixed(2)} m`);
+    if(lastLayout.out.some(o=>o.clamped)) lines.push('Część głośników przysunięta do ściany – kąt zachowany, odległość wyrówna amplituner.');
+    if(!hasDom) lines.push('Grip = cofnij');
+  } else if(!hasDom && step>0) lines.push('Grip = cofnij');
+  return lines.join('\n');
+}
+
+function place(){
+  if(!reticle){ say('Nie widzę powierzchni – porusz powoli urządzeniem'); return; }
+  const p=col(reticle,3), n=col(reticle,1), vertical=Math.abs(n[1])<0.6;
+  if(step===0){ tvPt=p; tvWall=vertical; step=1; }
+  else if(step===1){
+    if(vertical){ say('To ściana – wskaż podłogę pod miejscem siedzenia'); return; }
+    if(Math.hypot(p[0]-tvPt[0],p[2]-tvPt[2])<0.8){ say('Za blisko telewizora – wskaż miejsce siedzenia'); return; }
+    seatPt=p; step=2;
+  }
+}
+function undo(){ if(step===2){seatPt=null;step=1;} else if(step===1){tvPt=null;step=0;} }
+function reset(){ seatPt=null; tvPt=null; step=0; }
+
+async function addCtrl(src){
+  if(src.targetRayMode!=='tracked-pointer'||ctrlHit.has(src)) return;
+  ctrlHit.set(src,null);
+  try{ const hs=await session.requestHitTestSource({space:src.targetRaySpace}); if(ctrlHit.has(src)) ctrlHit.set(src,hs); else hs.cancel(); }
+  catch(e){ ctrlHit.delete(src); }
+}
+function onSources(e){
+  e.added.forEach(addCtrl);
+  e.removed.forEach(src=>{const hs=ctrlHit.get(src); if(hs) hs.cancel(); ctrlHit.delete(src);});
+}
+
+async function startAR(){
+  S=readSettings();
+  try{
+    if(!gl) initGL();
+    session=await navigator.xr.requestSession('immersive-ar',{
+      requiredFeatures:['hit-test'],
+      optionalFeatures:['local-floor','dom-overlay','plane-detection'],
+      domOverlay:{root:$('overlay')}
+    });
+  }catch(e){ $('status').textContent='Nie udało się uruchomić AR: '+e.message; return; }
+  hasDom=!!session.domOverlayState;
+  $('overlay').classList.add('on');
+  $('landing').style.display='none';
+  reset(); ctrlHit.clear(); reticle=null; planes=[];
+  await gl.makeXRCompatible();
+  session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl)});
+  try{ refSpace=await session.requestReferenceSpace('local-floor'); }catch(e){ refSpace=await session.requestReferenceSpace('local'); }
+  viewerSpace=await session.requestReferenceSpace('viewer');
+  try{ viewerHit=await session.requestHitTestSource({space:viewerSpace}); }catch(e){ viewerHit=null; }
+  session.addEventListener('select',place);
+  session.addEventListener('squeeze',undo);
+  session.addEventListener('inputsourceschange',onSources);
+  for(const src of session.inputSources) addCtrl(src);
+  session.addEventListener('end',()=>{
+    session=null; viewerHit=null; ctrlHit.clear();
+    $('overlay').classList.remove('on'); $('landing').style.display='';
+  });
+  session.requestAnimationFrame(onFrame);
+}
+
+function pickHit(frame){
+  let src=null, hs=null;
+  for(const [s,h] of ctrlHit){ if(!h) continue; if(!hs||s.handedness==='right'){src=s;hs=h;} }
+  if(!hs){ hs=viewerHit; src=null; }
+  reticle=null;
+  if(hs){ const r=frame.getHitTestResults(hs); if(r.length){ const p=r[0].getPose(refSpace); if(p) reticle=p.transform.matrix; } }
+  return src;
+}
+
+function onFrame(t,frame){
+  const s=frame.session; s.requestAnimationFrame(onFrame);
+  const pose=frame.getViewerPose(refSpace);
+  if(!pose) return;
+  const tp=pose.transform.position; cam=[tp.x,tp.y,tp.z];
+  const src=pickHit(frame);
+
+  // Wykryte powierzchnie pokoju (Quest: z konfiguracji przestrzeni)
+  planes=[];
+  if(frame.detectedPlanes){
+    planesSupported=true;
+    frame.detectedPlanes.forEach(pl=>{
+      const pp=frame.getPose(pl.planeSpace,refSpace); if(!pp) return;
+      let b=[Infinity,-Infinity,Infinity,-Infinity];
+      for(const q of pl.polygon){ b[0]=Math.min(b[0],q.x); b[1]=Math.max(b[1],q.x); b[2]=Math.min(b[2],q.z); b[3]=Math.max(b[3],q.z); }
+      planes.push({m:pp.transform.matrix,inv:pp.transform.inverse.matrix,poly:pl.polygon,bbox:b,vertical:pl.orientation==='vertical'});
+    });
+  }
+
+  tris=[]; quads=[];
+  // obrysy wykrytych powierzchni
+  for(const p of planes){
+    const pts=Array.from(p.poly,q=>xform(p.m,[q.x,q.y,q.z]));
+    const c=p.vertical?[1,1,1,0.28]:[0.55,0.75,1,0.22];
+    for(let i=0;i<pts.length;i++) seg(pts[i],pts[(i+1)%pts.length],0.012,c);
+  }
+  // promień kontrolera
+  if(src){
+    const cp=frame.getPose(src.targetRaySpace,refSpace);
+    if(cp){ const m=cp.transform.matrix, o=col(m,3), fwd=scl(col(m,2),-1);
+      const end=reticle?col(reticle,3):add(o,scl(fwd,3)); seg(o,end,0.006,[1,1,1,0.5]); }
+  }
+  // celownik
+  if(reticle){
+    const x=col(reticle,0), y=col(reticle,1), z=col(reticle,2), p=add(col(reticle,3),scl(y,0.004));
+    const r=ringTex(), sz=0.22*Math.max(1,len(sub(cam,p))/2.2);
+    quads.push({t:r.tex,M:m4basis(x,z,y,p,sz,sz),tint:step<2?[1,1,1,0.95]:[1,1,1,0.35]});
+  }
+  // TV i miejsce siedzenia
+  if(tvPt){ billboard(discTex([0.9,0.9,0.9]),tvPt,0.08*camScale(tvPt)); label(['TV'],tvPt,[0.9,0.9,0.9]); }
+  if(seatPt){
+    flat(ringTex(),add(seatPt,[0,0.004,0]),0.5,[1,1,1,0.9]);
+    const head=[seatPt[0],seatPt[1]+S.ear,seatPt[2]];
+    seg(seatPt,head,0.01,[1,1,1,0.6]);
+    billboard(discTex([1,1,1]),head,0.07*camScale(head));
+    seg(add(seatPt,[0,0.004,0]),[tvPt[0],seatPt[1]+0.004,tvPt[2]],0.01,[1,1,1,0.45]);
+  }
+  // układ głośników
+  lastLayout=null;
+  if(step===2){
+    const L=computeLayout(seatPt,tvPt,tvWall,S,planes); lastLayout=L;
+    label(['Miejsce odsłuchu',`uszy ${Math.round(S.ear*100)} cm`],[seatPt[0],L.earY,seatPt[2]],[1,1,1]);
+    for(const o of L.out){
+      const c=o.s.col, c4=[c[0],c[1],c[2],1], p=o.pos;
+      seg(L.O,p,0.006,[c[0],c[1],c[2],0.55]);
+      if(o.s.kind==='ceil'){
+        quads.push({t:ringTex().tex,M:m4basis([1,0,0],[0,0,-1],[0,1,0],sub(p,[0,0.01,0]),0.3,0.3),tint:c4});
+      } else {
+        const fp=[p[0],L.floorY+0.004,p[2]];
+        flat(ringTex(),fp,0.3,c4);
+        seg(fp,p,0.012,[c[0],c[1],c[2],0.8]);
+      }
+      billboard(discTex(c),p,0.09*camScale(p));
+      const hcm=Math.round((p[1]-L.floorY)*100);
+      const l2 = o.s.kind==='ceil' ? `na suficie · ${o.dist.toFixed(2)} m` : `wys. ${hcm} cm · ${o.dist.toFixed(2)} m`;
+      label([`${o.s.short} · ${o.s.name}`, l2, o.clamped?'przy ścianie · kąt '+o.s.tip:o.s.tip], p, c);
+    }
+  }
+  // komunikaty
+  const msg=stepMsg(), info=infoText();
+  if(hasDom){
+    if($('msg').textContent!==msg) $('msg').textContent=msg;
+    if($('info').textContent!==info) $('info').textContent=info;
+  } else {
+    const lines=wrap(msg,40).concat(info?info.split('\n').flatMap(l=>wrap(l,46)):[]);
+    const tt=textTex(lines,null), vm=pose.transform.matrix;
+    const h=0.028*lines.length, p=xform(vm,[0,-0.2,-0.85]);
+    quads.push({t:tt.tex,M:m4basis(col(vm,0),col(vm,1),col(vm,2),p,h*tt.aspect,h),tint:[1,1,1,1]});
+  }
+  render(pose,s);
+}
+function wrap(t,n){
+  const out=[]; let line='';
+  for(const w of t.split(' ')){ if((line+' '+w).trim().length>n&&line){out.push(line);line=w;} else line=(line+' '+w).trim(); }
+  if(line) out.push(line); return out;
+}
+
+function render(pose,s){
+  const layer=s.renderState.baseLayer;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  gl.bindBuffer(gl.ARRAY_BUFFER,dynBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(tris),gl.STREAM_DRAW);
+  triCount=tris.length/7;
+  for(const view of pose.views){
+    const vp=layer.getViewport(view); gl.viewport(vp.x,vp.y,vp.width,vp.height);
+    const VP=m4mul(view.projectionMatrix,view.transform.inverse.matrix);
+    if(triCount){
+      gl.useProgram(progC); gl.uniformMatrix4fv(progC.uVP,false,VP);
+      gl.bindBuffer(gl.ARRAY_BUFFER,dynBuf);
+      gl.enableVertexAttribArray(progC.aP); gl.vertexAttribPointer(progC.aP,3,gl.FLOAT,false,28,0);
+      gl.enableVertexAttribArray(progC.aC); gl.vertexAttribPointer(progC.aC,4,gl.FLOAT,false,28,12);
+      gl.drawArrays(gl.TRIANGLES,0,triCount);
+      gl.disableVertexAttribArray(progC.aC);
+    }
+    gl.useProgram(progT); gl.uniformMatrix4fv(progT.uVP,false,VP); gl.uniform1i(progT.uTex,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+    gl.enableVertexAttribArray(progT.aQ); gl.vertexAttribPointer(progT.aQ,2,gl.FLOAT,false,0,0);
+    gl.activeTexture(gl.TEXTURE0);
+    for(const q of quads){
+      gl.bindTexture(gl.TEXTURE_2D,q.t); gl.uniformMatrix4fv(progT.uM,false,q.M); gl.uniform4fv(progT.uTint,q.tint);
+      gl.drawArrays(gl.TRIANGLES,0,6);
+    }
+  }
+}
+
+/* ---------- Przyciski ---------- */
+$('btns').addEventListener('beforexrselect',e=>e.preventDefault());
+$('undo').onclick=undo; $('reset').onclick=reset; $('exit').onclick=()=>session&&session.end();
+$('start').onclick=startAR;
+
+/* ---------- Wsparcie i offline ---------- */
+(async()=>{
+  const st=$('status');
+  if(!window.isSecureContext){ st.textContent='AR wymaga adresu https:// (np. GitHub Pages).'; return; }
+  if(!navigator.xr){ st.textContent='Ta przeglądarka nie obsługuje WebXR. Na Androidzie użyj Chrome, na Queście wbudowanej przeglądarki. Plan z góry poniżej działa wszędzie.'; return; }
+  try{
+    const ok=await navigator.xr.isSessionSupported('immersive-ar');
+    if(ok){ $('start').disabled=false; st.textContent=''; }
+    else st.textContent='To urządzenie nie obsługuje AR w przeglądarce. Na Androidzie zainstaluj „Usługi Google Play dla AR”. Plan z góry poniżej działa wszędzie.';
+  }catch(e){ st.textContent='Błąd sprawdzania AR: '+e.message; }
+})();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
