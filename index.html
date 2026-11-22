@@ -213,6 +213,7 @@ function m4mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0
 function m4basis(x,y,z,p,sx,sy){return new Float32Array([x[0]*sx,x[1]*sx,x[2]*sx,0, y[0]*sy,y[1]*sy,y[2]*sy,0, z[0],z[1],z[2],0, p[0],p[1],p[2],1]);}
 const UP=[0,1,0];
 let hasDom=false;   // true = telefon (nakładka DOM), false = gogle
+const IS_QUEST=/OculusBrowser|Quest|Pacific/i.test(navigator.userAgent||'');
 const IN=0.0254, K169=16/Math.hypot(16,9);
 const widthToDiag=w=>w/K169/IN;
 
@@ -614,7 +615,7 @@ function modeInfo(){
     if(crawl&&crawl.cur) l.push(`Teraz: poziom ${crawl.cur.lvl.toFixed(0)} dB (wzgl.), nierówność ±${crawl.cur.spr.toFixed(1)} dB · punkty: ${crawlCells.size}`);
     l.push('Mikrofon telefonu słabo słyszy najniższy bas – wynik porównuje miejsca między sobą.');
   }
-  if(!hasDom) l.push('A/X = zmień tryb');
+  if(!hasDom) l.push('A / X = zmień tryb');
   return l;
 }
 let modeBtnPrev=false;
@@ -794,9 +795,16 @@ function canvasTex(cv){
   return t;
 }
 function cached(key,make){
-  if(texCache.has(key)) return texCache.get(key);
-  if(texCache.size>250){ texCache.forEach(v=>gl.deleteTexture(v.tex)); texCache.clear(); }
+  if(texCache.has(key)){ const v=texCache.get(key); texCache.delete(key); texCache.set(key,v); return v; }   // LRU: odśwież
+  if(texCache.size>300){ let n=0; for(const [k,v] of texCache){ if(n++>=80) break; gl.deleteTexture(v.tex); texCache.delete(k); } }
   const v=make(); texCache.set(key,v); return v;
+}
+// zmieniające się napisy (odległości na żywo) – nowa tekstura najwyżej co ~150 ms, żeby nie dławić gogli
+const slotTex=new Map();
+function slotText(slot,lines,accent,ms=150){
+  const key=lines.join('\n')+accent, now=performance.now(), sl=slotTex.get(slot);
+  if(sl && (sl.key===key || now-sl.t<ms)) return sl.tex;
+  const tex=textTex(lines,accent); slotTex.set(slot,{key,t:now,tex}); return tex;
 }
 const rgb=(c,a=1)=>`rgba(${c.map(v=>Math.round(v*255)).join(',')},${a})`;
 function ringTex(){return cached('ring',()=>{const cv=document.createElement('canvas');cv.width=cv.height=128;const x=cv.getContext('2d');
@@ -845,8 +853,8 @@ function flat(tex,p,size,tint=[1,1,1,1]){
   quads.push({t:tex.tex,M:m4basis([1,0,0],[0,0,-1],[0,1,0],p,size,size),tint});
 }
 const camScale=p=>Math.max(1,len(sub(cam,p))/1.6);
-function label(lines,p,accent,alpha=1){
-  const t=textTex(lines,accent), h=0.034*lines.length*camScale(p);
+function label(lines,p,accent,alpha=1,slot=null){
+  const t=slot?slotText(slot,lines,accent):textTex(lines,accent), h=0.034*lines.length*camScale(p);
   billboard(t,add(p,[0,h/2+0.06*camScale(p),0]),h,[1,1,1,alpha]);
 }
 
@@ -1381,13 +1389,17 @@ async function startAR(){
   S=readSettings();
   try{
     if(!gl) initGL();
-    session=await navigator.xr.requestSession('immersive-ar',{
+    const opts = IS_QUEST ? {
+      requiredFeatures:['local-floor'],
+      optionalFeatures:['hit-test','plane-detection','mesh-detection','anchors']
+    } : {
       requiredFeatures:['hit-test'],
       optionalFeatures:['local-floor','dom-overlay','plane-detection','mesh-detection','depth-sensing'],
       domOverlay:{root:$('overlay')},
       // czujnik głębi ARCore – odległość do każdego punktu obrazu, także na gładkich ścianach
       depthSensing:{usagePreference:['cpu-optimized'],dataFormatPreference:['luminance-alpha','float32']}
-    });
+    };
+    session=await navigator.xr.requestSession('immersive-ar',opts);
   }catch(e){ $('status').textContent='Nie udało się uruchomić AR: '+e.message; return; }
   hasDom=!!session.domOverlayState;
   depthOn = !!(session.depthUsage==='cpu-optimized' || (session.enabledFeatures&&session.enabledFeatures.includes('depth-sensing')&&session.depthUsage!=='gpu-optimized'));
@@ -1400,7 +1412,7 @@ async function startAR(){
   try{ refSpace=await session.requestReferenceSpace('local-floor'); floorRef=true; }
   catch(e){ refSpace=await session.requestReferenceSpace('local'); floorRef=false; }
   viewerSpace=await session.requestReferenceSpace('viewer');
-  try{ viewerHit=await session.requestHitTestSource({space:viewerSpace}); }catch(e){ viewerHit=null; }
+  try{ viewerHit = IS_QUEST ? null : await session.requestHitTestSource({space:viewerSpace}); }catch(e){ viewerHit=null; }
   session.addEventListener('select',place);
   session.addEventListener('squeeze',onSqueeze);
   session.addEventListener('inputsourceschange',onSources);
@@ -1441,12 +1453,34 @@ function depthReticle(frame,pose){
   const z=cross(x,n);
   return new Float32Array([x[0],x[1],x[2],0, n[0],n[1],n[2],0, z[0],z[1],z[2],0, c[0],c[1],c[2],1]);
 }
+function rayReticle(o,d){
+  let best=Infinity, pt=null, n=null;
+  const fy=floorRef?0:floorY();
+  if(d[1]<-0.03){ const t=(fy-o[1])/d[1]; if(t>0&&t<12){ best=t; pt=add(o,scl(d,t)); n=[0,1,0]; } }
+  for(const p of planes){
+    if(!p.vertical) continue;
+    const pn=col(p.m,1), den=dot(d,pn); if(Math.abs(den)<1e-3) continue;
+    const t=dot(sub(col(p.m,3),o),pn)/den; if(t<=0||t>=best) continue;
+    const L=xform(p.inv,add(o,scl(d,t))), b=p.bbox;
+    if(L[0]<b[0]||L[0]>b[1]||L[2]<b[2]||L[2]>b[3]) continue;
+    best=t; pt=add(o,scl(d,t)); n=dot(pn,d)>0?scl(pn,-1):pn;
+  }
+  if(!pt) return null;
+  let x=cross(n,[0,0,1]); if(len(x)<0.2) x=cross(n,[1,0,0]); x=norm(x); const z=cross(x,n);
+  return new Float32Array([x[0],x[1],x[2],0, n[0],n[1],n[2],0, z[0],z[1],z[2],0, pt[0],pt[1],pt[2],1]);
+}
 function pickHit(frame,pose){
   let src=null, hs=null;
   for(const [s,h] of ctrlHit){ if(!h) continue; if(!hs||s.handedness==='right'){src=s;hs=h;} }
   if(!hs){ hs=viewerHit; src=null; }
   let m=null;
   if(hs){ const r=frame.getHitTestResults(hs); if(r.length){ const p=r[0].getPose(refSpace); if(p) m=p.transform.matrix; } }
+  // gogle: gdy hit-test nic nie zwraca (brak konfiguracji przestrzeni), celuj promieniem kontrolera w podłogę / ściany
+  if(!m && !hasDom){
+    let rs=src; if(!rs) for(const s2 of frame.session.inputSources) if(s2.targetRayMode==='tracked-pointer'){ if(!rs||s2.handedness==='right') rs=s2; }
+    const rp=rs&&frame.getPose(rs.targetRaySpace,refSpace);
+    if(rp){ m=rayReticle(col(rp.transform.matrix,3),norm(scl(col(rp.transform.matrix,2),-1))); if(!src&&m) src=rs; }
+  }
   depthRet=false;
   if(!src && depthOn){
     // brak trafienia albo trafienie „za ścianą” (rozciągnięta płaszczyzna podłogi) → użyj czujnika głębi
@@ -1510,8 +1544,8 @@ function onFrame(t,frame){
     const tint = step<3 ? (stable?[0.35,0.95,0.55,1]:[1,1,1,0.9]) : (drag||hover ? [1,0.85,0.2,1] : [1,1,1,0.6]);
     quads.push({t:ringTex().tex,M:m4basis(x,z,y,p,sz,sz),tint});
     if(step===1){ floorSeg(add(tvL,[0,0.003,0]),add(p,[0,-0.001,0]),0.012,[1,1,1,0.9]);
-      label([`${hlen(sub(reticlePos,tvL)).toFixed(2)} m ≈ ${Math.round(widthToDiag(hlen(sub(reticlePos,tvL))))}"`],p,[1,1,1]); }
-    if(step===2&&tvPt){ seg(tvPt,p,0.008,[1,1,1,0.6]); label([`${hlen(sub(reticlePos,tvPt)).toFixed(2)} m od TV`],p,[1,1,1]); }
+      label([`${hlen(sub(reticlePos,tvL)).toFixed(2)} m ≈ ${Math.round(widthToDiag(hlen(sub(reticlePos,tvL))))}"`],p,[1,1,1],1,'ret'); }
+    if(step===2&&tvPt){ seg(tvPt,p,0.008,[1,1,1,0.6]); label([`${hlen(sub(reticlePos,tvPt)).toFixed(2)} m od TV`],p,[1,1,1],1,'ret'); }
   }
   // wykryte obiekty
   if(step===0&&autoTV&&!manualTV){
@@ -1583,7 +1617,7 @@ function onFrame(t,frame){
         else if(o.onObj) lines.push(`na: ${o.onObj}`);
         if(o.badAng) lines.push(`⚠ kąt ${Math.round(o.ang)}° (zalecane ${o.s.tip})`);
         else if(o.clamped) lines.push('przy ścianie');
-        label(lines, p, c);
+        label(lines, p, c, 1, 'spk'+o.id);
       }
     });
     // strefa idealnej odległości od TV, łuk kąta, kierunek skręcenia, odhaczone
@@ -1597,7 +1631,7 @@ function onFrame(t,frame){
         const N=Math.max(4,Math.ceil(Math.abs(a1)/0.12));
         for(let k=0;k<N;k++) floorSeg(pt(a1*k/N),pt(a1*(k+1)/N),0.02,[1,1,1,0.85]);
         floorSeg(so,pt(0),0.01,[1,1,1,0.5]);
-        label([`${Math.round(Math.abs(a1)*180/Math.PI)}°`],pt(a1/2),[1,1,1]);
+        label([`${Math.round(Math.abs(a1)*180/Math.PI)}°`],pt(a1/2),[1,1,1],1,'ang');
         if(o.s.kind!=='floor'){ // kierunek skręcenia głośnika (toe-in) – w stronę uszu
           const fp=[o.pos[0],L.floorY+0.008,o.pos[2]], dir=norm([seatPt[0]-fp[0],0,seatPt[2]-fp[2]]), side=cross(dir,UP);
           const tip=add(fp,scl(dir,0.45)), back=sub(tip,scl(dir,0.13));
@@ -1635,10 +1669,9 @@ function onFrame(t,frame){
     if($('info').textContent!==info) $('info').textContent=info;
     updateButtons();
   } else {
-    const lines=wrap(msg,42).concat(info?info.split('\n').flatMap(l=>wrap(l,48)):[]);
-    const tt=textTex(lines,null), vm=pose.transform.matrix;
-    const h=0.026*lines.length, p=xform(vm,[0,-0.22,-0.85]);
-    quads.push({t:tt.tex,M:m4basis(col(vm,0),col(vm,1),col(vm,2),p,h*tt.aspect,h),tint:[1,1,1,1]});
+    const lines=wrap(msg,40).concat(info?info.split('\n').flatMap(l=>wrap(l,44)):[]).slice(0,12);
+    const tt=slotText('hud',lines,null,250);
+    drawHud(frame,pose,tt,lines.length);
   }
   render(pose,s);
 }
@@ -1682,6 +1715,26 @@ function drawMini(){
   });
   const m=P(me); ctx.fillStyle='#ffd34d'; ctx.beginPath(); ctx.arc(m[0],m[1],8,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#ffd34d'; ctx.font='bold 22px system-ui'; ctx.fillText('Ty',m[0]+10,m[1]-8);
+}
+// panel tekstowy w goglach: nad lewym kontrolerem (jak tablet na nadgarstku); bez kontrolera – leniwie podąża za wzrokiem
+let hudPos=null;
+function drawHud(frame,pose,tt,nLines){
+  let left=null;
+  for(const s2 of frame.session.inputSources) if(s2.handedness==='left'&&s2.gripSpace) left=s2;
+  const gp=left&&frame.getPose(left.gripSpace,refSpace);
+  let p, h;
+  if(gp){
+    const gm=gp.transform.matrix; p=add(col(gm,3),[0,0.14,0]); p=add(p,scl(col(gm,2),-0.04)); h=0.018*nLines;
+    p=add(p,[0,h/2,0]);
+  } else {
+    const vm=pose.transform.matrix, fw=norm([-vm[8],0,-vm[10]]);
+    const target=add(cam,add(scl(fw,1.0),[0,-0.25,0]));
+    if(!hudPos) hudPos=target;
+    const toT=sub(target,hudPos), toHud=norm(sub(hudPos,cam));
+    if(len(toT)>0.02 && (dot(toHud,fw)<0.82 || len(toT)>0.5)) hudPos=add(hudPos,scl(toT,0.06));
+    p=hudPos; h=0.03*nLines;
+  }
+  billboard(tt,p,h);
 }
 function wrap(t,n){
   const out=[]; let line='';
