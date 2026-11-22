@@ -81,7 +81,8 @@
   <div class="card">
     <h2>Zanim zaczniesz</h2>
     <ol>
-      <li>Zapal światło – w ciemnym pokoju pomiar jest niedokładny.</li>
+      <li>Zapal światło – w ciemnym pokoju pomiar jest niedokładny. Unikaj ostrego światła prosto w kamerę.</li>
+      <li>Przetrzyj obiektyw aparatu – smuga albo odcisk palca psuje wykrywanie.</li>
       <li>Na telefonie przez kilka sekund powoli „maluj” kamerą podłogę, aż pojawi się celownik.</li>
       <li>Celownik <b style="color:#5be38a">zielony</b> = pomiar stabilny, możesz tapnąć. Biały = trzymaj chwilę nieruchomo.</li>
       <li>Telewizor mierzysz, wskazując jego <b>lewą</b> i <b>prawą krawędź</b> (ramkę ekranu albo podłogę dokładnie pod krawędziami).</li>
@@ -105,8 +106,9 @@
 
   <div class="card">
     <details>
-      <summary>Wersja 1.6 – co nowego</summary>
+      <summary>Wersja 1.7 – co nowego</summary>
       <ol>
+        <li><b>Czujnik głębi ARCore:</b> celownik działa także na gładkich ścianach; kawałki podłogi scalane w jedną powierzchnię.</li>
         <li><b>Tryby dźwiękowe:</b> fale i odbicia od ścian, mapa basu z najlepszym miejscem na subwoofer, odsłuch 3D wirtualnych głośników w słuchawkach, sub crawl z mikrofonem.</li>
         <li><b>Obrys pokoju:</b> na telefonie wskazujesz narożniki pokoju – ściany są dokładne, głośniki nigdy za ścianą.</li>
         <li>Wizualizacja mebli ze skanu Questa i obrys ścian/przeszkód na telefonie.</li>
@@ -1296,6 +1298,7 @@ function infoText(){
   if(step<3){
     if(reticlePos && step<3){
       if(stable) lines.push('Celownik zielony – pomiar stabilny ✓'); else lines.push('Trzymaj chwilę nieruchomo – celownik zrobi się zielony.');
+      if(depthRet) lines.push('📡 Celownik z czujnika głębi (gładka ściana / brak wykrytej powierzchni)');
     }
     if(step===1 && reticlePos){ const w=hlen(sub(reticlePos,tvL)); lines.push(`Szerokość ekranu: ${w.toFixed(2)} m ≈ ${Math.round(widthToDiag(w))}"`); }
     if(step===2 && tvPt){
@@ -1304,12 +1307,14 @@ function infoText(){
     }
     if(planesSupported&&!hasDom) lines.push(`Ściany ze skanu pokoju: ${planes.filter(p=>p.vertical).length}`);
     if(hasDom&&floorGrid) lines.push(`Podłoga: jedna powierzchnia, ${floorGrid.area.toFixed(1)} m² (scalono ${floorGrid.pieces} kawałków)`);
+    if(hasDom) lines.push(depthOn?'📡 Czujnik głębi: włączony':'Czujnik głębi niedostępny na tym telefonie – celuj w miejsca z fakturą');
     if(!hasDom) lines.push(step===0&&autoTV&&!manualTV || step===2&&autoSeat&&!manualSeat ? 'Grip = wskaż ręcznie' : 'Grip = cofnij');
     return lines.join('\n');
   }
   const L=lastLayout; if(!L) return '';
   if(scanning){
     if(questWalls()){ lines.push('Głośniki same przesuwają się przed ściany ze skanu.'); lines.push('Spust = dalej · Grip = cofnij'); return lines.join('\n'); }
+    if(depthRet) lines.push('📡 Celownik z czujnika głębi – możesz celować prosto w gładką ścianę.');
     lines.push('Narożnik zasłonięty meblem? Wskaż dowolny punkt na podstawie ściany albo samą ścianę – liczy się kierunek ściany.');
     lines.push('Idź dookoła w jednym kierunku. Wnęki i załamania ścian też wskaż jako narożniki.');
     if(reticlePos&&room.length) lines.push(`Ta ściana: ${fmtM(hlen(sub(reticlePos,room[room.length-1])))}`);
@@ -1378,11 +1383,14 @@ async function startAR(){
     if(!gl) initGL();
     session=await navigator.xr.requestSession('immersive-ar',{
       requiredFeatures:['hit-test'],
-      optionalFeatures:['local-floor','dom-overlay','plane-detection','mesh-detection'],
-      domOverlay:{root:$('overlay')}
+      optionalFeatures:['local-floor','dom-overlay','plane-detection','mesh-detection','depth-sensing'],
+      domOverlay:{root:$('overlay')},
+      // czujnik głębi ARCore – odległość do każdego punktu obrazu, także na gładkich ścianach
+      depthSensing:{usagePreference:['cpu-optimized'],dataFormatPreference:['luminance-alpha','float32']}
     });
   }catch(e){ $('status').textContent='Nie udało się uruchomić AR: '+e.message; return; }
   hasDom=!!session.domOverlayState;
+  depthOn = !!(session.depthUsage==='cpu-optimized' || (session.enabledFeatures&&session.enabledFeatures.includes('depth-sensing')&&session.depthUsage!=='gpu-optimized'));
   $('overlay').classList.add('on');
   try{ if(navigator.wakeLock) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){ wakeLock=null; }
   $('landing').style.display='none';
@@ -1409,12 +1417,45 @@ async function startAR(){
   session.requestAnimationFrame(onFrame);
 }
 
-function pickHit(frame){
+/* ---------- Czujnik głębi (Depth API) – celownik także na gładkich ścianach ---------- */
+let depthOn=false, depthRet=false;
+function depthPoint(depth,view,x,y){
+  let d; try{ d=depth.getDepthInMeters(x,y); }catch(e){ return null; }
+  if(!(d>0.15&&d<8)) return null;
+  const P=view.projectionMatrix, nx=2*x-1, ny=1-2*y;
+  const v=[(nx+P[8])*d/P[0], (ny+P[9])*d/P[5], -d];
+  return xform(view.transform.matrix,v);
+}
+function depthReticle(frame,pose){
+  if(!depthOn||!pose||!pose.views.length) return null;
+  const view=pose.views[0];
+  let depth; try{ depth=frame.getDepthInformation(view); }catch(e){ return null; }
+  if(!depth) return null;
+  const c=depthPoint(depth,view,0.5,0.5), a=depthPoint(depth,view,0.54,0.5), b=depthPoint(depth,view,0.5,0.46);
+  if(!c||!a||!b) return null;
+  let n=norm(cross(sub(a,c),sub(b,c)));
+  if(!isFinite(n[0])) return null;
+  if(dot(n,sub(cam,c))<0) n=scl(n,-1);
+  // macierz celownika: oś Y = normalna powierzchni
+  let x=cross(n,[0,0,1]); if(len(x)<0.2) x=cross(n,[1,0,0]); x=norm(x);
+  const z=cross(x,n);
+  return new Float32Array([x[0],x[1],x[2],0, n[0],n[1],n[2],0, z[0],z[1],z[2],0, c[0],c[1],c[2],1]);
+}
+function pickHit(frame,pose){
   let src=null, hs=null;
   for(const [s,h] of ctrlHit){ if(!h) continue; if(!hs||s.handedness==='right'){src=s;hs=h;} }
   if(!hs){ hs=viewerHit; src=null; }
   let m=null;
   if(hs){ const r=frame.getHitTestResults(hs); if(r.length){ const p=r[0].getPose(refSpace); if(p) m=p.transform.matrix; } }
+  depthRet=false;
+  if(!src && depthOn){
+    // brak trafienia albo trafienie „za ścianą” (rozciągnięta płaszczyzna podłogi) → użyj czujnika głębi
+    const dm=depthReticle(frame,pose);
+    if(dm){
+      const dd=len(sub(col(dm,3),cam)), hd=m?len(sub(col(m,3),cam)):Infinity;
+      if(!m || hd>dd+0.25){ m=dm; depthRet=true; }
+    }
+  }
   updateReticle(m);
   return src;
 }
@@ -1427,7 +1468,7 @@ function onFrame(t,frame){
     return;
   }
   const tp=pose.transform.position; cam=[tp.x,tp.y,tp.z];
-  const src=pickHit(frame);
+  const src=pickHit(frame,pose);
   checkCeiling();
 
   planes=[];
